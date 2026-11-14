@@ -12,7 +12,7 @@ struct ChatView: View {
             if let model {
                 ChatContent(model: model)
             } else {
-                ProgressView()
+                Theme.background.ignoresSafeArea()
             }
         }
         .task(id: conversationId) {
@@ -60,7 +60,7 @@ private struct ChatContent: View {
                     }
                     // Between the send and the first block of the reply; an
                     // open turn carries the line itself.
-                    if model.running, !(items.last?.isActiveTurn ?? false) {
+                    if model.loaded, model.running, !(items.last?.isActiveTurn ?? false) {
                         VStack(alignment: .leading, spacing: 8) {
                             AssistantLabel()
                             WorkingIndicator(startedAt: model.turnStartedAt)
@@ -75,7 +75,7 @@ private struct ChatContent: View {
                         )
                     }
                     if !model.loaded && model.error == nil {
-                        ProgressView().frame(maxWidth: .infinity).padding(.top, 60)
+                        TranscriptSkeleton()
                     }
                     Color.clear
                         .frame(height: 1)
@@ -258,6 +258,51 @@ private extension TimelineItem {
 
 // MARK: - Messages
 
+/// Stands in for the transcript while the history loads: the shape of a
+/// question and a reply, breathing gently, instead of a spinner.
+private struct TranscriptSkeleton: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var dim = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack {
+                Spacer(minLength: 48)
+                UnevenRoundedRectangle(
+                    topLeadingRadius: 18, bottomLeadingRadius: 18, bottomTrailingRadius: 18, topTrailingRadius: 4,
+                    style: .continuous)
+                    .fill(Theme.raised)
+                    .frame(width: 180, height: 40)
+            }
+            VStack(alignment: .leading, spacing: 10) {
+                bar(width: 72, height: 10)
+                bar(fraction: 1)
+                bar(fraction: 0.92)
+                bar(fraction: 0.64)
+            }
+        }
+        .opacity(dim ? 0.45 : 1)
+        .onAppear {
+            guard !reduceMotion else { return }
+            withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) { dim = true }
+        }
+        .transition(.opacity)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Loading messages")
+    }
+
+    private func bar(width: CGFloat, height: CGFloat = 12) -> some View {
+        Capsule().fill(Theme.raised).frame(width: width, height: height)
+    }
+
+    private func bar(fraction: CGFloat) -> some View {
+        GeometryReader { geo in
+            Capsule().fill(Theme.raised).frame(width: geo.size.width * fraction)
+        }
+        .frame(height: 12)
+    }
+}
+
 private struct UserBubble: View {
     let message: ChatMessage
 
@@ -389,6 +434,8 @@ private struct CopyButton: View {
 struct MarkdownText: View {
     let text: String
     var color: Color = Theme.text
+    /// Documents size headings by level; chat replies keep them compact.
+    var headings = false
 
     private enum Part: Hashable {
         case prose(String)
@@ -462,7 +509,7 @@ struct MarkdownText: View {
             ForEach(Array(parts.enumerated()), id: \.offset) { _, part in
                 switch part {
                 case .prose(let s):
-                    Text(Self.render(s))
+                    Text(Self.render(s, headings: headings))
                         .font(Theme.content)
                         .foregroundStyle(color)
                         .lineSpacing(4)
@@ -475,7 +522,7 @@ struct MarkdownText: View {
                             .font(.system(size: 13, design: .monospaced))
                             .foregroundStyle(Theme.text)
                             .textSelection(.enabled)
-                            .fixedSize(horizontal: true, vertical: false)
+                            .fixedSize()
                             .padding(12)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -489,16 +536,16 @@ struct MarkdownText: View {
         }
     }
 
-    private static func render(_ s: String) -> AttributedString {
+    private static func render(_ s: String, headings: Bool) -> AttributedString {
         var result = AttributedString()
         let lines = s.split(separator: "\n", omittingEmptySubsequences: false)
         for (i, raw) in lines.enumerated() {
             var line = String(raw)
-            var heading = false
+            var heading = 0
             var quote = false
-            if let m = line.firstMatch(of: /^#{1,6}\s+/) {
+            if let m = line.firstMatch(of: /^(#{1,6})\s+/) {
+                heading = m.1.count
                 line.removeSubrange(m.range)
-                heading = true
             } else if let m = line.firstMatch(of: /^\s*>\s?/) {
                 line.removeSubrange(m.range)
                 quote = true
@@ -515,7 +562,10 @@ struct MarkdownText: View {
                 piece[run.range].font = .system(size: 14, design: .monospaced)
                 piece[run.range].backgroundColor = Theme.surface
             }
-            if heading { piece.font = .system(size: 16, weight: .semibold) }
+            if heading > 0 {
+                let size: CGFloat = headings ? [22, 19, 17, 16, 15, 15][heading - 1] : 16
+                piece.font = .system(size: size, weight: headings && heading <= 2 ? .bold : .semibold)
+            }
             if quote { piece.foregroundColor = Theme.muted }
             result += piece
             if i < lines.count - 1 { result += AttributedString("\n") }

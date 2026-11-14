@@ -114,19 +114,29 @@ struct ThreadCardView: View {
     }
 }
 
-/// A file the agent handed over. An image shows itself; anything else is a
-/// compact attachment row. A tap fetches the file from the Mac and opens it.
+/// A file the agent handed over. Images and text formats (Markdown, CSV,
+/// HTML, code) preview in the card; a tap opens the in-app viewer, or Quick
+/// Look for everything else.
 struct ArtifactCard: View {
     let artifact: Artifact
     @Environment(RemoteStore.self) private var store
     @State private var preview: UIImage?
+    @State private var local: URL?
     @State private var opening = false
     @State private var opened: URL?
+    @State private var viewing = false
     @State private var failure: String?
 
     private static let previews = NSCache<NSString, UIImage>()
+    /// Text previews download the whole file; past this the card stays an
+    /// icon row (the Mac's uplink can be slow).
+    private static let thumbnailLimit = 384 * 1024
 
     private var isImage: Bool { artifact.kind == "image" }
+    private var format: ArtifactFormat { ArtifactFormat(artifact) }
+    private var wantsThumbnail: Bool {
+        format.isText && artifact.sizeBytes > 0 && artifact.sizeBytes <= Self.thumbnailLimit
+    }
 
     var body: some View {
         Button(action: open) {
@@ -142,10 +152,19 @@ struct ArtifactCard: View {
                     }
                     .frame(width: 280, height: 210)
                     .clipped()
+                } else if wantsThumbnail {
+                    Group {
+                        if let local {
+                            ArtifactThumbnail(artifact: artifact, format: format, url: local)
+                        } else {
+                            Theme.surface.frame(width: 280, height: ArtifactThumbnail.height)
+                        }
+                    }
+                    .overlay(alignment: .bottom) { Rectangle().fill(Theme.border).frame(height: 1) }
                 }
                 HStack(spacing: 10) {
-                    if !isImage {
-                        Image(systemName: Self.symbol(artifact.kind))
+                    if !isImage && !wantsThumbnail {
+                        Image(systemName: Self.symbol(artifact, format))
                             .font(.system(size: 17))
                             .foregroundStyle(Theme.muted)
                             .frame(width: 40, height: 40)
@@ -175,13 +194,24 @@ struct ArtifactCard: View {
         .buttonStyle(.plain)
         .disabled(opening)
         .quickLookPreview($opened)
+        .sheet(isPresented: $viewing) {
+            ArtifactViewer(artifact: artifact, format: format)
+        }
         .task(id: artifact.path) {
+            #if DEBUG
+            // `-demoOpenArtifact <name>` (with `-demoSnapshot`): open its viewer.
+            if UserDefaults.standard.string(forKey: "demoOpenArtifact") == artifact.name { open() }
+            #endif
+            if wantsThumbnail {
+                local = try? await ArtifactFiles.fetch(artifact, store: store)
+                return
+            }
             guard isImage, preview == nil else { return }
             if let hit = Self.previews.object(forKey: artifact.path as NSString) {
                 preview = hit
                 return
             }
-            guard let data = try? await read(preview: true), let image = UIImage(data: data) else { return }
+            guard let data = try? await readPreview(), let image = UIImage(data: data) else { return }
             Self.previews.setObject(image, forKey: artifact.path as NSString)
             preview = image
         }
@@ -189,11 +219,19 @@ struct ArtifactCard: View {
 
     private var meta: String {
         let size = ByteCountFormatter.string(fromByteCount: Int64(artifact.sizeBytes), countStyle: .file)
-        return (artifact.caption == nil ? "" : "\(artifact.name) · ") + "\(artifact.kindLabel) · \(size)"
+        return (artifact.caption == nil ? "" : "\(artifact.name) · ") + "\(kindLabel) · \(size)"
     }
 
-    private func read(preview: Bool) async throws -> Data {
-        let reply = try await store.request("artifacts.read", ["path": .string(artifact.path), "preview": .bool(preview)])
+    private var kindLabel: String {
+        switch format {
+        case .table(let separator): separator == "," ? "CSV" : "TSV"
+        case .code(let language?) where language == "json": "JSON"
+        default: artifact.kindLabel
+        }
+    }
+
+    private func readPreview() async throws -> Data {
+        let reply = try await store.request("artifacts.read", ["path": .string(artifact.path), "preview": .bool(true)])
         guard let data = reply["data"].string.flatMap({ Data(base64Encoded: $0) }) else {
             throw RemoteError.server("The Mac sent no file.")
         }
@@ -201,34 +239,36 @@ struct ArtifactCard: View {
     }
 
     private func open() {
-        opening = true
         failure = nil
+        if format.isText {
+            viewing = true
+            return
+        }
+        opening = true
         Task {
             defer { opening = false }
             do {
-                // One folder per file so two artifacts may share a name.
-                let dir = FileManager.default.temporaryDirectory
-                    .appendingPathComponent("artifacts/\(abs(artifact.path.hashValue))", isDirectory: true)
-                let url = dir.appendingPathComponent(artifact.name)
-                if !FileManager.default.fileExists(atPath: url.path) {
-                    let data = try await read(preview: false)
-                    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-                    try data.write(to: url)
-                }
-                opened = url
+                opened = try await ArtifactFiles.fetch(artifact, store: store)
             } catch {
                 failure = error.localizedDescription
             }
         }
     }
 
-    private static func symbol(_ kind: String) -> String {
-        switch kind {
-        case "video": "play.rectangle"
-        case "audio": "headphones"
-        case "pdf", "markdown", "text": "doc.text"
-        case "html": "chevron.left.forwardslash.chevron.right"
-        default: "doc"
+    private static func symbol(_ artifact: Artifact, _ format: ArtifactFormat) -> String {
+        switch format {
+        case .table: return "tablecells"
+        case .web: return "globe"
+        case .markdown: return "doc.richtext"
+        case .code(let language?) where language != "json": return "chevron.left.forwardslash.chevron.right"
+        case .code: return "doc.text"
+        case .native: break
+        }
+        switch artifact.kind {
+        case "video": return "play.rectangle"
+        case "audio": return "headphones"
+        case "pdf": return "doc.text"
+        default: return "doc"
         }
     }
 }
