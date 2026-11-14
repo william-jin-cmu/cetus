@@ -60,7 +60,7 @@ do {
                     switch seg {
                     case .activity(_, let steps, let trailing):
                         print("  [fold]", AssistantSegment.summary(steps), "(\(steps.count) steps)", trailing ? "trailing" : "")
-                    case .answer(let b): print("  answer:", b.id)
+                    case .answer(let b): print("  answer:", b.id, b.artifacts.map { "artifact \($0.kind) \($0.name)" }.joined(separator: ", "))
                     }
                 }
             }

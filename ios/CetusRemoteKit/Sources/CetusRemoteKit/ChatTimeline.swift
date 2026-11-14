@@ -60,6 +60,9 @@ public struct ChatTimeline: Sendable {
             if let id = m["toolCallId"].string { results[id] = m }
         }
         var lastUserAt: Date?
+        // A CLI transcript can repeat a tool call inside one message (same
+        // id twice); the desktop shows it once, so does the phone.
+        var seenCalls: Set<String> = []
         for m in raw {
             guard m["display"].bool != false else { continue }
             let role: ChatMessage.Role
@@ -70,6 +73,8 @@ public struct ChatTimeline: Sendable {
             }
             var blocks: [ChatBlock] = []
             for b in Self.contentBlocks(m) {
+                if ["toolCall", "tool_use"].contains(b["type"].string ?? ""), let callId = b["id"].string, !callId.isEmpty,
+                   !seenCalls.insert(callId).inserted { continue }
                 if let block = block(from: b, results: results, isUser: role == .user) { blocks.append(block) }
             }
             if blocks.isEmpty { continue }
