@@ -71,7 +71,7 @@ struct ConversationListView: View {
         }
         .tint(Theme.text)
         #if DEBUG
-        .onChange(of: store.conversations.isEmpty) { _, empty in
+        .onChange(of: store.conversations.isEmpty, initial: true) { _, empty in
             if !empty, path.isEmpty, let id = UserDefaults.standard.string(forKey: "openChat") {
                 path.append(.chat(id))
             }

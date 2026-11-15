@@ -91,7 +91,10 @@ final class RemoteStore {
     var selectedHostId: String? {
         didSet {
             UserDefaults.standard.set(selectedHostId, forKey: "selectedHost")
-            if oldValue != selectedHostId { reconnect() }
+            if oldValue != selectedHostId {
+                restoreCached()
+                reconnect()
+            }
         }
     }
     private(set) var state: ConnectionState = .idle
@@ -116,6 +119,10 @@ final class RemoteStore {
 
     /// The chat on screen, fed this connection's events.
     weak var activeChat: ChatModel?
+    /// The last draft edit the Mac sent (DraftStore); open composers follow it.
+    var remoteDraft: RemoteDraft?
+    @ObservationIgnored var draftPushes: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored private var prefetchTask: Task<Void, Never>?
 
     private var connection: RemoteConnection?
     private var eventTask: Task<Void, Never>?
@@ -129,12 +136,40 @@ final class RemoteStore {
         return id
     }()
 
+    #if DEBUG
+    /// `-demoList <file>`: a fake paired Mac with a canned chat list, sidebar
+    /// and model catalog, for screenshots without a Mac.
+    let demoList = UserDefaults.standard.string(forKey: "demoList")
+    #endif
+
     init() {
+        #if DEBUG
+        if let path = demoList, let data = FileManager.default.contents(atPath: path), let j = try? JSON.parse(data) {
+            let name = j["host"]["macName"].string ?? "Mac"
+            let raw = #"{"sid":"demo","publicKey":"","relay":"","macName":"\#(name)","deviceToken":"","pairedAt":0}"#
+            hosts = (try? JSONDecoder().decode(PairedHost.self, from: Data(raw.utf8))).map { [$0] } ?? []
+            selectedHostId = hosts.first?.sid
+            applySidebar(j["sidebar"])
+            applyConversations(j["conversations"])
+            for (k, v) in j["tunings"].object ?? [:] { tunings[k] = RuntimeTuning(v) }
+            state = .connected
+            return
+        }
+        #endif
         if let d = Keychain.data("hosts"), let h = try? JSONDecoder().decode([PairedHost].self, from: d) {
             hosts = h
         }
         let saved = UserDefaults.standard.string(forKey: "selectedHost")
         selectedHostId = hosts.first { $0.sid == saved }?.sid ?? hosts.first?.sid
+        restoreCached()
+    }
+
+    /// Draw the selected Mac's chat list as last seen; the Mac's answer
+    /// replaces it once connected.
+    private func restoreCached() {
+        guard let host = selectedHostId else { return }
+        if let rows = SnapshotCache.list(host: host) { applyConversations(rows, live: false) }
+        if let j = SnapshotCache.sidebar(host: host) { applySidebar(j) }
     }
 
     var selectedHost: PairedHost? { hosts.first { $0.sid == selectedHostId } }
@@ -163,6 +198,7 @@ final class RemoteStore {
     func forget(_ host: PairedHost) {
         hosts.removeAll { $0.sid == host.sid }
         saveHosts()
+        SnapshotCache.forget(host: host.sid)
         if selectedHostId == host.sid {
             selectedHostId = hosts.first?.sid
             if hosts.isEmpty { disconnect(); state = .idle; conversations = [] }
@@ -179,6 +215,9 @@ final class RemoteStore {
     }
 
     func reconnect() {
+        #if DEBUG
+        if demoList != nil { return }
+        #endif
         disconnect()
         loadCachedIcons()
         guard let host = selectedHost else { state = .idle; return }
@@ -262,6 +301,7 @@ final class RemoteStore {
     private func refreshSidebar() async {
         guard let j = try? await request("workspaces.list") else { return }
         applySidebar(j)
+        if let host = selectedHostId { SnapshotCache.saveSidebar(j, host: host) }
         refreshIcons()
     }
 
@@ -372,6 +412,7 @@ final class RemoteStore {
     func addFolder(_ dir: String) async throws {
         let j = try await request("workspaces.add", ["dir": .string(dir)])
         applySidebar(j)
+        if let host = selectedHostId { SnapshotCache.saveSidebar(j, host: host) }
     }
 
     func searchDirs(_ query: String) async throws -> [DirHit] {
@@ -388,13 +429,53 @@ final class RemoteStore {
     }
 
     private func refreshConversations() async {
-        guard let rows = try? await request("conversations.list", ["archived": .bool(showArchived)]) else { return }
+        let archived = showArchived
+        guard let rows = try? await request("conversations.list", ["archived": .bool(archived)]) else { return }
+        // A toggle while the request was out asks for the other list.
+        guard archived == showArchived else { return }
+        if !archived, let host = selectedHostId { SnapshotCache.saveList(rows, host: host) }
+        applyConversations(rows)
+        if !archived { prefetchChats() }
+    }
+
+    /// Chats fetched ahead so their first open draws at once.
+    private static let prefetchCount = 6
+
+    /// Fetch the most recent chats whose cached copy is older than their last
+    /// change, one at a time (the Mac's uplink can be slow), so the next open
+    /// draws from the cache. Running chats are skipped: their snapshot is
+    /// outdated within seconds, and the open turn isn't cached anyway.
+    private func prefetchChats() {
+        guard let host = selectedHostId else { return }
+        let wanted = conversations
+            .filter { !running.contains($0.id) && !$0.archived }
+            .sorted { $0.updatedAt > $1.updatedAt }
+            .prefix(Self.prefetchCount)
+            .filter { !SnapshotCache.isFresh(host: host, id: $0.id, updatedAt: $0.updatedAt) }
+            .map(\.id)
+        guard !wanted.isEmpty else { return }
+        prefetchTask?.cancel()
+        prefetchTask = Task { [weak self] in
+            for id in wanted {
+                guard let self, !Task.isCancelled, self.selectedHostId == host, self.state == .connected else { return }
+                // The open chat fetches its own.
+                if self.activeChat?.conversationId == id { continue }
+                guard let snapshot = try? await self.request("conversations.get", ["id": .string(id)]) else { return }
+                guard !Task.isCancelled, self.selectedHostId == host else { return }
+                SnapshotCache.saveChat(snapshot, host: host, id: id)
+            }
+        }
+    }
+
+    /// `live: false` for a cached list, whose run states are old news.
+    private func applyConversations(_ rows: JSON, live: Bool = true) {
         var list = (rows.array ?? []).compactMap(Conversation.init)
         if showArchived { list = list.filter(\.archived) }
         conversations = list.sorted {
             if $0.pinned != $1.pinned { return $0.pinned }
             return $0.updatedAt > $1.updatedAt
         }
+        guard live else { return }
         running = Set(list.filter { $0.runState == "running" }.map(\.id))
         // A run may have ended while the app was away from the events.
         for id in queued.keys where !running.contains(id) { drainQueue(id) }
@@ -497,6 +578,8 @@ final class RemoteStore {
                 }
                 activeChat?.conversationChanged(c)
             }
+        case "draft_updated":
+            receiveDraft(envelope)
         case "conversation_deleted":
             conversations.removeAll { $0.id == envelope["id"].string }
         case "resync":

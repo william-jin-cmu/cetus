@@ -296,6 +296,8 @@ pub fn start(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
         remote::rotate_remote_access,
         remote::revoke_remote_device,
         remote::set_remote_sidebar,
+        remote::set_remote_draft,
+        remote::get_remote_drafts,
         resources::resources_snapshot,
         usage::provider_usage,
         cli_backend::get_cli_agent_settings,

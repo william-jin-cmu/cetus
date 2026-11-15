@@ -11,8 +11,9 @@ struct NewChatView: View {
     @AppStorage("lastRuntime") private var runtime: String = Runtime.claudeCode.rawValue
     @AppStorage("lastFolder") private var lastFolder: String = ""
     @State private var folder: String?
-    @State private var text = ""
-    @State private var images: [OutgoingImage] = []
+    /// Restored from, and saved back to, the `chat:new` draft.
+    @State private var text = DraftStore.text(DraftStore.key(for: nil))
+    @State private var images: [OutgoingImage] = DraftStore.images(DraftStore.key(for: nil))
     @State private var busy = false
     @State private var error: String?
     @State private var pickingFolder = false
@@ -125,6 +126,20 @@ struct NewChatView: View {
             .background(Theme.background)
         }
         .onChange(of: runtime, initial: true) { tuningChoice = .load(runtime) }
+        .onChange(of: text) {
+            let key = DraftStore.key(for: nil)
+            // An edit from the Mac is already saved; don't send it back.
+            guard text != DraftStore.text(key) else { return }
+            DraftStore.setText(text, for: key)
+            store.scheduleDraftPush(key)
+        }
+        .onChange(of: store.remoteDraft) { _, remote in
+            if let remote, remote.key == DraftStore.key(for: nil) { text = remote.text }
+        }
+        .task(id: store.state == .connected) {
+            if let pulled = await store.pullDraft(DraftStore.key(for: nil)) { text = pulled }
+        }
+        .onChange(of: images.map(\.id)) { DraftStore.setImages(images, for: DraftStore.key(for: nil)) }
         .task(id: "\(runtime) \(store.state == .connected)") { await store.loadTuning(runtime) }
         .navigationTitle("New chat")
         .navigationBarTitleDisplayMode(.inline)
@@ -153,6 +168,8 @@ struct NewChatView: View {
                     workspaceDir: dir.isEmpty ? nil : dir,
                     tuning: picked)
                 try await store.send(message, images: photos, to: c.id)
+                DraftStore.clear(DraftStore.key(for: nil))
+                await store.pushDraft(DraftStore.key(for: nil))
                 lastFolder = dir
                 onCreated(c)
             } catch {

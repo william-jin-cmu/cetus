@@ -19,11 +19,13 @@ struct ChatView: View {
             let m = ChatModel(conversationId: conversationId, store: store)
             model = m
             store.activeChat = m
+            await m.showCached()
             await m.load()
         }
         .onDisappear {
             if store.activeChat?.conversationId == conversationId { store.activeChat = nil }
         }
+        .onChange(of: store.remoteDraft) { _, remote in model?.remoteDraftChanged(remote) }
     }
 }
 
@@ -38,6 +40,15 @@ private struct ChatContent: View {
     @State private var atBottom = true
     @State private var sent = 0
     private static let bottomId = "bottom"
+
+    /// After the new rows have laid out.
+    private func scrollToBottomSoon(_ proxy: ScrollViewProxy) {
+        proxy.scrollTo(Self.bottomId, anchor: .bottom)
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(60))
+            proxy.scrollTo(Self.bottomId, anchor: .bottom)
+        }
+    }
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -110,6 +121,15 @@ private struct ChatContent: View {
             .animation(.snappy(duration: 0.2), value: atBottom)
             .onChange(of: sent) {
                 withAnimation(.snappy) { proxy.scrollTo(Self.bottomId, anchor: .bottom) }
+            }
+            // Open at the latest message, whether the cached copy or the
+            // Mac's answer drew first, and stay there when the fresh copy
+            // replaces the cached one (unless the reader scrolled up).
+            .onChange(of: model.loaded) { _, loaded in
+                if loaded { scrollToBottomSoon(proxy) }
+            }
+            .onChange(of: model.stale) { was, now in
+                if was, !now, atBottom { scrollToBottomSoon(proxy) }
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 VStack(spacing: 8) {

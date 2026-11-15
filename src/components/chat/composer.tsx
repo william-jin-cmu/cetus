@@ -46,6 +46,7 @@ import {
   readDraft,
   readDraftAttachments,
   readPersistedDraftAttachments,
+  subscribeDraft,
   writeDraft,
   writeDraftAttachments,
 } from "@/lib/draft-store";
@@ -293,6 +294,11 @@ export function Composer({
       draftKey ? parseRefs(readDraft(mentionDraftKey(draftKey))) : [],
     );
   }, [draftKey, restoreAttachments]);
+  // The same chat's draft edited on the phone.
+  useEffect(
+    () => (draftKey ? subscribeDraft(draftKey, setText) : undefined),
+    [draftKey],
+  );
   const [attachments, setAttachments] = useState<ComposerAttachment[]>(() =>
     restoreAttachments(draftKey),
   );

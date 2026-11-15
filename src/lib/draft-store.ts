@@ -9,10 +9,16 @@
 // recovery/reload cannot discard an unsent attachment.
 
 import { createStore, del, get, set } from "idb-keyval";
+import { invoke } from "@/lib/host/core";
+import { listen } from "@/lib/host/event";
 
 const PREFIX = "cetus:draft:";
+/** When each draft was last edited (ms), so the newer of the desktop's and
+ *  the phone's copy wins. */
+const AT_PREFIX = "cetus:draftAt:";
 
 const cache = new Map<string, string>();
+const editedAt = new Map<string, number>();
 export type DraftAttachment =
   | { type: "image"; data: string; mimeType: string; name: string }
   | { type: "file"; data: string; mimeType: string; name: string; sizeBytes: number };
@@ -32,6 +38,8 @@ function hydrate() {
       const k = localStorage.key(i);
       if (k && k.startsWith(PREFIX)) {
         cache.set(k.slice(PREFIX.length), localStorage.getItem(k) ?? "");
+      } else if (k && k.startsWith(AT_PREFIX)) {
+        editedAt.set(k.slice(AT_PREFIX.length), Number(localStorage.getItem(k)) || 0);
       }
     }
   } catch {}
@@ -57,6 +65,8 @@ function flushDrafts() {
     try {
       if (text) localStorage.setItem(PREFIX + key, text);
       else localStorage.removeItem(PREFIX + key);
+      const at = editedAt.get(key);
+      if (at && shared(key)) localStorage.setItem(AT_PREFIX + key, String(at));
     } catch {}
   }
   pendingWrites.clear();
@@ -70,15 +80,99 @@ if (typeof window !== "undefined") {
 }
 
 export function writeDraft(key: string, text: string): void {
+  storeDraft(key, text, Date.now());
+  if (shared(key)) schedulePush(key);
+}
+
+function storeDraft(key: string, text: string, at: number) {
   hydrate();
   if (text) {
     cache.set(key, text);
   } else {
     cache.delete(key);
   }
+  editedAt.set(key, at);
   pendingWrites.add(key);
   clearTimeout(persistTimer);
   persistTimer = setTimeout(flushDrafts, PERSIST_DELAY_MS);
+}
+
+// ---- Sync with the phone -------------------------------------------------
+// The typed text of a chat's draft (not quotes, mentions or attachments) is
+// shared with Cetus on the phone through the backend's `remote.drafts`
+// setting. The newest edit wins; edits from the phone arrive as
+// `remote-draft` events and reach a mounted composer via subscribeDraft.
+
+/** `chat:<id>` and `chat:new`; derived keys (`#quote`, `#mentions`) stay local. */
+function shared(key: string): boolean {
+  return key.startsWith("chat:") && !key.includes("#");
+}
+
+const PUSH_DELAY_MS = 600;
+const pushTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+function schedulePush(key: string) {
+  clearTimeout(pushTimers.get(key));
+  pushTimers.set(
+    key,
+    setTimeout(() => {
+      pushTimers.delete(key);
+      pushDraft(key);
+    }, PUSH_DELAY_MS),
+  );
+}
+
+function pushDraft(key: string) {
+  invoke("set_remote_draft", {
+    key,
+    text: cache.get(key) ?? "",
+    updatedAt: editedAt.get(key) ?? Date.now(),
+  }).catch(() => {});
+}
+
+const listeners = new Map<string, Set<(text: string) => void>>();
+
+/** Hear about edits made on the phone to this draft. */
+export function subscribeDraft(key: string, fn: (text: string) => void): () => void {
+  let set = listeners.get(key);
+  if (!set) listeners.set(key, (set = new Set()));
+  set.add(fn);
+  return () => {
+    set.delete(fn);
+    if (!set.size) listeners.delete(key);
+  };
+}
+
+function applyRemote(key: string, text: string, at: number) {
+  hydrate();
+  if (!shared(key) || at <= (editedAt.get(key) ?? 0)) return;
+  // An edit typed here but not pushed yet is newer than anything incoming.
+  if (pushTimers.has(key)) return;
+  storeDraft(key, text, at);
+  listeners.get(key)?.forEach((fn) => fn(text));
+}
+
+let syncing = false;
+
+/** Merge the phone's drafts once, then follow its edits. Call at startup. */
+export function startDraftSync(): void {
+  if (syncing || typeof window === "undefined") return;
+  syncing = true;
+  hydrate();
+  void listen<{ key: string; text: string; updatedAt: number }>("remote-draft", (e) => {
+    applyRemote(e.payload.key, e.payload.text ?? "", e.payload.updatedAt ?? 0);
+  });
+  invoke<Record<string, { text?: string; updatedAt?: number }>>("get_remote_drafts")
+    .then((remote) => {
+      for (const [key, entry] of Object.entries(remote ?? {})) {
+        applyRemote(key, entry.text ?? "", entry.updatedAt ?? 0);
+      }
+      // Edits made here while the backend didn't have them yet.
+      for (const [key, at] of editedAt) {
+        if (shared(key) && at > (remote?.[key]?.updatedAt ?? 0)) pushDraft(key);
+      }
+    })
+    .catch(() => {});
 }
 
 export function readDraftAttachments(key: string): DraftAttachment[] {
