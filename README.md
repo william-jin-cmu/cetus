@@ -80,7 +80,7 @@ Turn any prompt into a one-off or recurring job (`at` / `every` / `cron` / `dail
 
 The iPhone companion shows the same chats as your Mac, grouped by the same folders. Approve a `git push` from the couch, answer an agent's question on the train, start a new task on any runtime and model, or open the CSV or report an agent just sent. Drafts follow you between phone and desktop. The phone pairs with your Mac by QR code over an end-to-end encrypted link, so the relay in between can't read your chats.
 
-Free beta on [TestFlight](https://testflight.apple.com/join/ETX2HxHR).
+Free on the [App Store](https://apps.apple.com/app/cetus-remote/id6832189457).
 
 ![Cetus Remote on iPhone: chat list, an approval, a new chat, a CSV artifact, and a morning brief](docs/screenshot-iphone.png)
 
