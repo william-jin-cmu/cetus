@@ -76,6 +76,14 @@ Cetus 的其它能力，都是为了缩短你在环里的那一段。
 
 ![Cetus 自动化任务演示](docs/automation.gif)
 
+### Cetus Remote：把 agent 装进口袋
+
+iPhone 端和 Mac 上看到的是同一批对话，按同样的文件夹分组。窝在沙发上就能批准一次 `git push`，在地铁上回答 agent 的提问，用任意 runtime 和模型开一个新任务，或者直接打开 agent 刚发来的 CSV、报告。草稿在手机和电脑之间同步。手机扫码就能和 Mac 配对，全程端到端加密，中间的中继服务器读不到你的对话。
+
+在 [App Store](https://apps.apple.com/app/cetus-remote/id6832189457) 免费下载。
+
+![iPhone 上的 Cetus Remote：会话列表、权限审批、新建对话、CSV 文件和晨间简报](docs/screenshot-iphone.png)
+
 ### 少解释一点
 
 需要你手动交代的上下文越少，你就越快能离开这个环。
