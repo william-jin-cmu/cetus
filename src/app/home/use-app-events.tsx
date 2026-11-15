@@ -340,11 +340,12 @@ export function useAppEvents({
             // Async auto-title (or other out-of-band change) landed — merge the
             // fresh row into the sidebar list in place. If it just got archived
             // (e.g. by the auto-archive sweep), drop it from the active list.
+            // An unknown id is a chat made elsewhere (the phone): add it.
             const updated = evt.conversation;
             setConversations((cs) =>
               updated.archivedAt != null
                 ? cs.filter((c) => c.id !== updated.id)
-                : cs.map((c) => (c.id === updated.id ? updated : c)),
+                : mergeConversation(cs, updated),
             );
             break;
           }

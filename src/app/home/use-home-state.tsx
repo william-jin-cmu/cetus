@@ -14,6 +14,7 @@ import {
 } from "@/components/sidebar/workspace-grouping";
 import { invoke } from "@/lib/host/core";
 import { listen } from "@/lib/host/event";
+import { startDraftSync } from "@/lib/draft-store";
 import {
   isConversationMode,
   type ConversationMode,
@@ -626,6 +627,7 @@ export function useHomeState({
       },
     }).catch(() => {});
   }, [remoteSidebarKey]);
+  useEffect(() => startDraftSync(), []);
   // A folder added from the phone joins the recent list like a picked one.
   useEffect(() => {
     let unlisten: (() => void) | undefined;

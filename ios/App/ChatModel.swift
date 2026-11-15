@@ -15,6 +15,11 @@ struct OutgoingImage: Identifiable {
         preview = scaled
         jpeg = data
     }
+
+    init(preview: UIImage, jpeg: Data) {
+        self.preview = preview
+        self.jpeg = jpeg
+    }
 }
 
 extension RemoteStore {
@@ -48,13 +53,43 @@ final class ChatModel {
     private(set) var conversation: Conversation?
     private(set) var timeline = ChatTimeline()
     private(set) var loaded = false
+    /// What's on screen is the cached copy from the last visit; the Mac's
+    /// answer replaces it. Live events wait for that answer.
+    private(set) var stale = false
     /// A failed request or run, shown where the reply would be.
     var error: String?
     private(set) var retrying = false
     /// The error on screen is a failed history load; the next good one clears it.
     private var loadFailed = false
-    var draft = ""
-    var images: [OutgoingImage] = []
+    /// The unsent composer text and photos, saved per chat (DraftStore).
+    var draft: String {
+        didSet {
+            guard draft != oldValue, !applyingRemoteDraft else { return }
+            DraftStore.setText(draft, for: draftKey)
+            store?.scheduleDraftPush(draftKey)
+        }
+    }
+    @ObservationIgnored private var applyingRemoteDraft = false
+    var images: [OutgoingImage] {
+        didSet { if images.map(\.id) != oldValue.map(\.id) { DraftStore.setImages(images, for: draftKey) } }
+    }
+    private var draftKey: String { DraftStore.key(for: conversationId) }
+
+    /// Take the Mac's newer copy of this chat's draft text.
+    func adoptDraft(_ text: String) {
+        guard text != draft else { return }
+        applyingRemoteDraft = true
+        draft = text
+        applyingRemoteDraft = false
+    }
+
+    func remoteDraftChanged(_ remote: RemoteDraft?) {
+        if let remote, remote.key == draftKey { adoptDraft(remote.text) }
+    }
+
+    func syncDraft() async {
+        if let text = await store?.pullDraft(draftKey) { adoptDraft(text) }
+    }
     private weak var store: RemoteStore?
     /// Snapshot requests in flight, and the stream events that arrived
     /// meanwhile: the reply decides which of them it already holds.
@@ -65,6 +100,9 @@ final class ChatModel {
         self.conversationId = conversationId
         self.store = store
         conversation = store.conversations.first { $0.id == conversationId }
+        let key = DraftStore.key(for: conversationId)
+        draft = DraftStore.text(key)
+        images = DraftStore.images(key)
     }
 
     var running: Bool { timeline.running || (store?.running.contains(conversationId) ?? false) }
@@ -73,6 +111,19 @@ final class ChatModel {
     /// from then.
     var turnStartedAt: Date { timeline.turnStartedAt ?? seenRunningAt }
     private let seenRunningAt = Date()
+
+    /// Show the last-seen copy of this chat while the Mac is asked.
+    func showCached() async {
+        guard !loaded, let host = store?.selectedHostId,
+              let cached = await SnapshotCache.chat(host: host, id: conversationId),
+              !loaded
+        else { return }
+        timeline = ChatTimeline(snapshot: cached)
+        _ = timeline.takeError()
+        if let c = Conversation(cached["conversation"]) { conversation = c }
+        stale = true
+        loaded = true
+    }
 
     func load() async {
         guard let store else { return }
@@ -103,6 +154,10 @@ final class ChatModel {
             }
             let failure = fresh.takeError()
             timeline = fresh
+            stale = false
+            if let host = store.selectedHostId {
+                SnapshotCache.saveChat(snapshot, host: host, id: conversationId)
+            }
             if let c = Conversation(snapshot["conversation"]) { conversation = c }
             loaded = true
             // A run's error outlives the reload that follows its end.
@@ -110,7 +165,11 @@ final class ChatModel {
             loadFailed = false
             if let failure { error = failure }
             if refetch { Task { await load() } }
+            Task { await syncDraft() }
         } catch {
+            // The cached copy stays up; reconnecting reloads it (`resync`).
+            // An error row here would offer Retry, which reruns the turn.
+            if stale { return }
             self.error = error.localizedDescription
             loadFailed = true
         }
@@ -120,6 +179,8 @@ final class ChatModel {
         if loads > 0 { arrived.append((event, seq)) }
         // Already part of the snapshot on screen.
         if let seq, seq <= timeline.liveSeq { return }
+        // The cached copy can't take events; the snapshot on its way will.
+        if stale { return }
         if event["type"].string == "agent_start" { error = nil }
         let effect = timeline.apply(event)
         if let failure = timeline.takeError() { error = failure }

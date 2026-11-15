@@ -433,6 +433,85 @@ fn qr_svg(text: &str) -> String {
 }
 
 const SIDEBAR_SETTING: &str = "remote.sidebar";
+const DRAFTS_SETTING: &str = "remote.drafts";
+/// Cleared drafts are kept as tombstones (so an older copy can't come back)
+/// for this long, then dropped.
+const DRAFT_TOMBSTONE_MS: i64 = 7 * 24 * 3600 * 1000;
+
+/// Unsent composer text shared by the desktop and the phone, keyed like the
+/// webview's draft-store (`chat:<id>`, `chat:new`): {key: {text, updatedAt}}.
+/// The newest edit wins.
+fn load_drafts(state: &AppState) -> serde_json::Map<String, Value> {
+    state
+        .store
+        .get_setting(DRAFTS_SETTING)
+        .ok()
+        .flatten()
+        .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+        .and_then(|v| v.as_object().cloned())
+        .unwrap_or_default()
+}
+
+static DRAFTS_LOCK: Mutex<()> = Mutex::new(());
+
+/// Store `text` under `key` unless a newer edit is already there. Returns the
+/// winning entry and whether it changed.
+fn put_draft(state: &AppState, key: &str, text: &str, updated_at: i64) -> (Value, bool) {
+    let _guard = DRAFTS_LOCK.lock().unwrap();
+    let mut drafts = load_drafts(state);
+    if let Some(current) = drafts.get(key) {
+        let at = current["updatedAt"].as_i64().unwrap_or(0);
+        if at > updated_at || (at == updated_at && current["text"].as_str() == Some(text)) {
+            return (current.clone(), false);
+        }
+    }
+    let entry = json!({ "text": text, "updatedAt": updated_at });
+    drafts.insert(key.to_string(), entry.clone());
+    let cutoff = updated_at - DRAFT_TOMBSTONE_MS;
+    drafts.retain(|_, v| {
+        v["text"].as_str().is_some_and(|t| !t.is_empty())
+            || v["updatedAt"].as_i64().unwrap_or(0) > cutoff
+    });
+    let _ = state
+        .store
+        .set_setting(DRAFTS_SETTING, &Value::Object(drafts).to_string());
+    (entry, true)
+}
+
+/// Tell phones a draft changed.
+fn push_draft(events: &tokio::sync::broadcast::Sender<String>, key: &str, entry: &Value) {
+    let _ = events.send(
+        json!({
+            "type": "draft_updated",
+            "key": key,
+            "text": entry["text"],
+            "updatedAt": entry["updatedAt"],
+        })
+        .to_string(),
+    );
+}
+
+/// The desktop composer saved a draft.
+#[host::command]
+pub async fn set_remote_draft(
+    app: AppHandle,
+    key: String,
+    text: String,
+    updated_at: i64,
+) -> Result<(), String> {
+    let (entry, changed) = put_draft(&app.state::<AppState>(), &key, &text, updated_at);
+    if changed {
+        push_draft(&app.state::<RemoteRuntime>().events, &key, &entry);
+    }
+    Ok(())
+}
+
+/// Every shared draft, for the desktop to merge at startup (it may have
+/// missed the phone's edits while closed).
+#[host::command]
+pub async fn get_remote_drafts(state: State<'_, AppState>) -> Result<Value, String> {
+    Ok(Value::Object(load_drafts(&state)))
+}
 
 /// The desktop sidebar's folder groups as drawn ({defaultWorkspace, dirs,
 /// hidden}). The phone groups chats the same way, so the webview pushes it
@@ -1213,6 +1292,18 @@ fn require_str(params: &Value, key: &str) -> Result<String, String> {
 
 /// The conversation API behind the iOS app's encrypted channel. Mirrors the
 /// HTTP routes below; the caller has already authenticated the device.
+/// A chat the phone created or changed lives only in the store until the
+/// desktop hears about it; without this the sidebar shows it only after the
+/// next full list refresh.
+fn announce_conversation(app: &AppHandle, row: &Option<crate::store::Conversation>) {
+    if let Some(conversation) = row.clone() {
+        let _ = app.emit(
+            "app-event",
+            crate::app_event::AppEvent::ConversationUpdated { conversation },
+        );
+    }
+}
+
 pub(crate) async fn rpc(web: &WebState, method: &str, params: Value) -> Result<Value, String> {
     let app = &web.app;
     match method {
@@ -1237,9 +1328,9 @@ pub(crate) async fn rpc(web: &WebState, method: &str, params: Value) -> Result<V
                     .await?;
             }
             apply_phone_tuning(app, &conversation.id, &params).await?;
-            Ok(json!(
-                commands::get_conversation(app.state(), conversation.id).await?
-            ))
+            let row = commands::get_conversation(app.state(), conversation.id).await?;
+            announce_conversation(app, &row);
+            Ok(json!(row))
         }
         "conversations.get" => {
             let id = require_str(&params, "id")?;
@@ -1294,7 +1385,9 @@ pub(crate) async fn rpc(web: &WebState, method: &str, params: Value) -> Result<V
             if let Some(archived) = params.get("archived").and_then(Value::as_bool) {
                 commands::archive_conversation(app.state(), id.clone(), archived).await?;
             }
-            Ok(json!(commands::get_conversation(app.state(), id).await?))
+            let row = commands::get_conversation(app.state(), id).await?;
+            announce_conversation(app, &row);
+            Ok(json!(row))
         }
         "conversations.send" => {
             let id = require_str(&params, "id")?;
@@ -1404,6 +1497,31 @@ pub(crate) async fn rpc(web: &WebState, method: &str, params: Value) -> Result<V
                 .set_setting(SIDEBAR_SETTING, &sidebar.to_string());
             let _ = app.emit("remote-workspace-add", dir.clone());
             Ok(sidebar)
+        }
+        "drafts.get" => {
+            let key = require_str(&params, "key")?;
+            let drafts = load_drafts(&app.state::<AppState>());
+            Ok(drafts
+                .get(&key)
+                .cloned()
+                .unwrap_or_else(|| json!({ "text": "", "updatedAt": 0 })))
+        }
+        "drafts.set" => {
+            let key = require_str(&params, "key")?;
+            let text = param_str(&params, "text").unwrap_or_default();
+            let updated_at = params
+                .get("updatedAt")
+                .and_then(|v| v.as_i64().or_else(|| v.as_f64().map(|f| f as i64)))
+                .unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
+            let (entry, changed) = put_draft(&app.state::<AppState>(), &key, &text, updated_at);
+            if changed {
+                let _ = app.emit(
+                    "remote-draft",
+                    json!({ "key": key, "text": entry["text"], "updatedAt": entry["updatedAt"] }),
+                );
+                push_draft(&web.events, &key, &entry);
+            }
+            Ok(entry)
         }
         "fs.searchDirs" => {
             let query = param_str(&params, "query").unwrap_or_default();

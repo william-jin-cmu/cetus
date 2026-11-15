@@ -468,7 +468,11 @@ fn forwardable(event: &Value) -> bool {
         || matches!(
             event.get("type").and_then(Value::as_str),
             Some(
-                "conversation_updated" | "conversation_created" | "conversation_deleted" | "resync"
+                "conversation_updated"
+                    | "conversation_created"
+                    | "conversation_deleted"
+                    | "resync"
+                    | "draft_updated"
             )
         )
 }
