@@ -326,6 +326,17 @@ pub fn dispatch_turn(
     // transcript if ever needed again). `resume_before` snapshots the token
     // this turn resumes from — retry/fork restore to it to roll the turn back.
     append_cli_user_message(&state.store, conv, message, &images);
+    // Paint the prompt live too. A turn the desktop composer sent already
+    // shows it (the reducers skip an echo after a user row), but one started
+    // elsewhere (the phone, an automation, an auto-retry) has nothing else to
+    // render it until a reload.
+    sink.emit(cetus_bridge::bridge::RuntimeEvent::Protocol {
+        conversation_id: Some(conv.id.clone()),
+        event: serde_json::json!({
+            "type": "message_start",
+            "message": cli_user_message_json(message, &images),
+        }),
+    });
 
     let opts = cetus_bridge::cli_agent::CliRunOpts {
         // Per-conversation model + effort overrides; empty → the CLI's own
@@ -746,20 +757,7 @@ fn maybe_auto_retry_cli_turn(
             Ok(Some(conv)) if conv.run_state == "idle" => conv,
             _ => return,
         };
-        // Paint the continuation prompt live before the turn's stream starts —
-        // dispatch_turn persists the row, but nothing else would render it
-        // until a reload (backend-initiated turns have no optimistic bubble).
-        {
-            use cetus_bridge::pi_rpc::EventSink;
-            let sink = crate::host_bridge::HostEventSink::new(handle.clone());
-            sink.emit(cetus_bridge::bridge::RuntimeEvent::Protocol {
-                conversation_id: Some(conv_id.clone()),
-                event: serde_json::json!({
-                    "type": "message_start",
-                    "message": cli_user_message_json(CLI_AUTO_RETRY_PROMPT, &[]),
-                }),
-            });
-        }
+        // dispatch_turn paints the continuation prompt live.
         if let Err(error) = dispatch_turn(&handle, &conv, CLI_AUTO_RETRY_PROMPT, Vec::new()) {
             tracing::warn!("cli auto-retry dispatch failed for {conv_id}: {error}");
         }
