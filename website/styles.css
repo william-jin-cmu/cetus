@@ -76,3 +76,54 @@
 }
 @media(hover:none){.button:hover,.runtime-options button:hover{transform:none}}
 .download-buttons{display:flex;justify-content:center;gap:10px;flex-wrap:wrap;margin-top:27px}.download-buttons .download-button{margin-top:0}
+
+/* iPhone: screenshots tucked into a pocket like stickers; hover pulls one out. */
+.pocket{position:relative;height:580px}
+.stickers{position:absolute;inset:0}
+.sticker{position:absolute;left:var(--x);top:calc(150px + var(--y));z-index:var(--z);width:min(var(--w,250px),24%);margin:0;outline:none}
+.sticker-card{position:relative;display:block;padding:7px;background:#fff;border-radius:22px;box-shadow:0 1px 1px #0a0a0a14,0 12px 28px -10px #0a0a0a40;transform:rotate(var(--r));transition:transform .5s cubic-bezier(.2,.9,.25,1.15),box-shadow .3s}
+.sticker img{width:100%;border-radius:16px}
+.sticker figcaption{position:absolute;left:18px;top:-30px;padding:3px 11px 4px;background:#fdf6c9;color:#2b2a26;border-radius:3px;font-family:'PP Kyoto',Georgia,serif;font-style:italic;font-size:15px;line-height:1.3;white-space:nowrap;box-shadow:0 1px 2px #0a0a0a26;transform:rotate(calc(var(--r) * -.7 - 2deg))}
+.sticker:nth-child(2) figcaption{background:#e7e2fb;left:auto;right:16px}
+.sticker:nth-child(3) figcaption{background:#dff1e6}
+.sticker:nth-child(4) figcaption{background:#fde3dc}
+.sticker:nth-child(5) figcaption{background:#dcebfb}
+.sticker-card{pointer-events:none}
+/* Only the still figure takes the pointer: a little wider for the tilt, and
+   while hovered it reaches up over the lifted card, so it never flickers. */
+.sticker:before{content:'';position:absolute;inset:-6px -14px 0}
+.sticker:hover:before{top:-210px}
+.sticker:hover,.sticker:focus-visible{z-index:5}
+.sticker:hover .sticker-card,.sticker:focus-visible .sticker-card{transform:translateY(-190px) rotate(calc(var(--r) * .2)) scale(1.04);box-shadow:0 2px 2px #0a0a0a14,0 34px 60px -20px #0a0a0a60}
+.stickers:has(.sticker:hover) .sticker:not(:hover) .sticker-card{transform:translateY(12px) rotate(var(--r))}
+.pocket-lip{position:absolute;left:-12px;right:-12px;bottom:0;z-index:6;height:230px;display:flex;align-items:flex-end;justify-content:space-between;gap:40px;padding:0 40px 40px;background:var(--card);border-radius:22px;box-shadow:0 -1px 0 var(--line),0 -22px 34px -22px #0a0a0a38}
+.pocket-lip:before{content:'';position:absolute;inset:11px;border:1.5px dashed var(--line);border-radius:14px;pointer-events:none}
+.pocket-copy{position:relative;max-width:500px}
+.pocket-copy h2{font-size:26px;line-height:1.2;letter-spacing:-.03em}
+.pocket-copy p{margin-top:12px}
+.pocket-cta{position:relative;display:flex;flex-direction:column;align-items:flex-end;gap:10px;flex-shrink:0}
+.pocket-cta span{font-size:11px;color:var(--muted)}
+.dark .sticker-card{background:#2c2c33;box-shadow:0 1px 1px #0006,0 14px 30px -10px #000a}
+.dark .pocket-lip:before{border-color:#ffffff22}
+@media(max-width:700px){
+ .pocket{height:540px}
+ .sticker{width:43%}.sticker-card{padding:5px;border-radius:18px}.sticker img{border-radius:13px}
+ .sticker:nth-child(1){left:1%;top:84px}.sticker:nth-child(2){left:28%;top:44px}.sticker:nth-child(4){left:52%;top:100px;width:47%}.sticker:nth-child(3),.sticker:nth-child(5){display:none}
+ .sticker figcaption{font-size:13px;top:-24px;left:8px}.sticker:nth-child(2) figcaption{right:8px}
+ .sticker:hover .sticker-card,.sticker:focus-visible .sticker-card{transform:translateY(-120px) rotate(0) scale(1.02)}
+ .pocket-lip{left:-6px;right:-6px;height:330px;padding:0 22px 26px;flex-direction:column;align-items:flex-start;justify-content:flex-end;gap:22px}.pocket-copy h2{font-size:24px}.pocket-cta{align-items:flex-start}
+}
+@media(hover:none){.stickers:has(.sticker:hover) .sticker:not(:hover) .sticker-card{transform:rotate(var(--r))}}
+
+/* Hero: the iPhone app as a phone dropped on the desktop demo. */
+.product-demo{position:relative}
+.hero-phone{position:absolute;z-index:4;right:-44px;bottom:-56px;width:188px}
+.hero-phone:before{content:'';position:absolute;inset:-24px -20px -10px}
+.hero-phone-lift{display:block;pointer-events:none;transform:rotate(6deg);transition:transform .5s cubic-bezier(.2,.9,.25,1.15)}
+.hero-phone-card{display:block;padding:6px;background:#fff;border-radius:36px;box-shadow:0 1px 1px #0a0a0a1a,0 24px 48px -16px #0a0a0a59}
+.hero-phone-card img{width:100%;border-radius:30px;border:4px solid #111;background:#111}
+.hero-phone-tag{position:absolute;left:-150px;top:150px;padding:3px 11px 4px;background:#fdf6c9;color:#2b2a26;border-radius:3px;font-family:'PP Kyoto',Georgia,serif;font-style:italic;font-size:15px;line-height:1.3;white-space:nowrap;box-shadow:0 1px 2px #0a0a0a26;transform:rotate(-12deg)}
+.hero-phone:hover .hero-phone-lift{transform:translateY(-14px) rotate(2deg)}
+.dark .hero-phone-card{background:#2c2c33;box-shadow:0 1px 1px #0006,0 24px 48px -16px #000c}
+@media(max-width:1260px){.hero-phone{right:18px;width:168px}}
+@media(max-width:900px){.hero-phone{display:none}}
