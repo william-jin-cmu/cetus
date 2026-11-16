@@ -20,7 +20,8 @@ mod claude_session;
 pub use claude_session::{spawn_claude_session, ClaudeSessionHandle};
 mod acp_session;
 pub use acp_session::{
-    probe_antigravity_catalog, spawn_acp_session, AcpPermissionAnswer, AcpSessionHandle,
+    probe_antigravity_catalog, probe_opencode_catalog, spawn_acp_session, AcpPermissionAnswer,
+    AcpSessionHandle,
 };
 mod codex_session;
 use codex_session::codex_text_phase;

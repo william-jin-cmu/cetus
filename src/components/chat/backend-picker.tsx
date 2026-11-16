@@ -37,8 +37,8 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { antigravityTuning } from "@/lib/antigravity-tuning";
-export { antigravityTuning } from "@/lib/antigravity-tuning";
+import { catalogTuning } from "@/lib/catalog-tuning";
+export { catalogTuning } from "@/lib/catalog-tuning";
 import { cn } from "@/lib/utils";
 import { Kbd } from "@/components/ui/kbd";
 import { useTranslation } from "@/lib/i18n";
@@ -87,7 +87,7 @@ export function useRuntimeCatalog() {
   return { orderedBackends, entries, enabledBackendIds };
 }
 
-export type TunableBackendId = "claude-code" | "codex" | "grok" | "dsh" | "antigravity";
+export type TunableBackendId = "claude-code" | "codex" | "grok" | "dsh" | "antigravity" | "opencode";
 
 export function backendSupportsTuning(
   backend: BackendId,
@@ -96,6 +96,7 @@ export function backendSupportsTuning(
     backend === "claude-code" ||
     backend === "codex" ||
     backend === "antigravity" ||
+    backend === "opencode" ||
     backend === "grok" ||
     backend === "dsh"
   );
@@ -255,6 +256,7 @@ export const CLI_MODELS: Record<
     { id: "gpt-5.3-codex-spark", label: "GPT-5.3-Codex-Spark" },
   ],
   antigravity: [],
+  opencode: [],
   grok: [
     { id: "grok-4.5", label: "Grok 4.5" },
   ],
@@ -285,6 +287,7 @@ export const CLI_EFFORTS: Record<
     { id: "xhigh", label: "XHigh" },
   ],
   antigravity: [],
+  opencode: [],
   grok: [
     { id: "low", label: "Low" },
     { id: "medium", label: "Medium" },
@@ -374,7 +377,7 @@ export function cliModelCatalog(
 
 /** Antigravity reports supported thinking levels per model. */
 export function cliEffortCatalog(backend: TunableBackendId, model: string, defaults: CliDefaults | null) {
-  if (backend !== "antigravity") return CLI_EFFORTS[backend];
+  if (backend !== "antigravity" && backend !== "opencode") return CLI_EFFORTS[backend];
   const row = defaults?.models?.find((m) => m.id === model);
   return (row?.efforts ?? []).map((id) => ({
     id, label: id === "xhigh" ? "XHigh" : id.charAt(0).toUpperCase() + id.slice(1),
@@ -520,7 +523,7 @@ export function CliTuningMenu({
   // load, an unresolved selection renders its raw id.
   const defaults = useCliDefaults(backend);
   const models = cliModelCatalog(backend, defaults);
-  const tuning = backend === "antigravity" ? antigravityTuning(model, effort, defaults) : { model, effort };
+  const tuning = (backend === "antigravity" || backend === "opencode") ? catalogTuning(model, effort, defaults) : { model, effort };
   const efforts = cliEffortCatalog(backend, tuning.model || defaults?.model || "", defaults);
   const curModel = backend === "dsh" ? CLI_MODELS.dsh[0] : resolveCliModel(tuning.model, models, defaults);
   const curEffort = resolveCliEffort(tuning.effort, efforts, defaults);
@@ -542,8 +545,8 @@ export function CliTuningMenu({
   //    they mean. Only the live catalog is trusted for this one.
   useEffect(() => {
     if (!onMigrate || !defaults) return;
-    if (backend === "antigravity") {
-      const next = antigravityTuning(model, effort, defaults);
+    if ((backend === "antigravity" || backend === "opencode")) {
+      const next = catalogTuning(model, effort, defaults);
       if (next.model !== model || next.effort !== effort) onMigrate(next.model, next.effort);
       return;
     }
@@ -594,7 +597,7 @@ export function CliTuningMenu({
           <DropdownMenuItem
             key={e.id}
             className="text-xs"
-            onClick={() => backend === "antigravity" && onTuningChange ? onTuningChange(tuning.model, e.id) : onEffortChange(e.id)}
+            onClick={() => (backend === "antigravity" || backend === "opencode") && onTuningChange ? onTuningChange(tuning.model, e.id) : onEffortChange(e.id)}
           >
             <span className="flex-1">{e.label}</span>
             {e.id === curEffort?.id && <Check className="size-3.5" />}
@@ -614,8 +617,8 @@ export function CliTuningMenu({
                 key={m.id}
                 className="text-xs"
                 onClick={() => {
-                  if (backend === "antigravity" && onTuningChange) {
-                    onTuningChange(m.id, antigravityTuning(m.id, tuning.effort, defaults).effort);
+                  if ((backend === "antigravity" || backend === "opencode") && onTuningChange) {
+                    onTuningChange(m.id, catalogTuning(m.id, tuning.effort, defaults).effort);
                   } else onModelChange(m.id);
                 }}
               >

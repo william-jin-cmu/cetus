@@ -1,6 +1,6 @@
 import type { CliDefaults } from "./types";
 
-export function antigravityTuning(model: string, effort: string, defaults: CliDefaults | null) {
+export function catalogTuning(model: string, effort: string, defaults: CliDefaults | null) {
   const models = defaults?.models ?? [];
   let row = models.find((m) => m.id === (model || defaults?.model));
   let level = effort;
@@ -17,4 +17,3 @@ export function antigravityTuning(model: string, effort: string, defaults: CliDe
   }
   return { model: row.id, effort: level };
 }
-

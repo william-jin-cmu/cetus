@@ -1152,7 +1152,7 @@ async fn phone_tuning(state: &AppState, backend: &str) -> Value {
             "effort": default.reasoning,
         });
     }
-    if backend == "antigravity" {
+    if matches!(backend, "antigravity" | "opencode") {
         let defaults = crate::cli_backend::get_cli_defaults(backend.into())
             .await
             .unwrap_or_default();
