@@ -84,3 +84,8 @@ export function DshIcon({ className }: { className?: string }) {
     />
   );
 }
+
+/** Official favicon from https://antigravity.google/favicon.svg. */
+export function AntigravityIcon({ className }: { className?: string }) {
+  return <BrandImage src="/brands/antigravity.svg" label="Antigravity" className={className} />;
+}

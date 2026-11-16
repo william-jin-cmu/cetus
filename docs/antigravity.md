@@ -6,8 +6,10 @@ then sign in with `agy acp --login`. Restart Cetus after installing the CLI so
 it picks up the updated shell PATH. Select **Antigravity** in the runtime picker;
 the runtime can be enabled or disabled in Settings → Runtimes.
 
-Cetus uses Antigravity's live model catalog. Thinking levels are part of the
-model choices, so there is no separate reasoning selector. Streaming replies,
+Cetus uses Antigravity's native `configOptions` for separate model and reasoning
+selectors. Each model offers only its supported thinking levels. Existing 0.5.9
+combined selections are resolved against the CLI catalog when possible. The
+icon is the original SVG from https://antigravity.google/favicon.svg. Streaming replies,
 tool approval cards, attachments, cancellation, and continued conversations use
 the shared ACP bridge. Threads and scheduled jobs accept `antigravity` as the
 runtime/backend id.

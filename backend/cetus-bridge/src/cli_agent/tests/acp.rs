@@ -464,10 +464,17 @@ async fn live_opencode_acp_smoke() {
 #[ignore]
 async fn live_antigravity_acp_smoke() {
     let catalog = super::super::probe_antigravity_catalog().await.unwrap();
-    let model = catalog
-        .pointer("/models/currentModelId")
-        .and_then(Value::as_str)
+    let model = catalog["cetusModels"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|m| {
+            m["efforts"]
+                .as_array()
+                .is_some_and(|levels| levels.iter().any(|v| v == "low"))
+        })
         .unwrap();
+    let model = model["id"].as_str().unwrap();
     let dir = std::env::temp_dir().join("cetus-live-antigravity-acp");
     std::fs::create_dir_all(&dir).unwrap();
     let sink = Arc::new(TestSink(std::sync::Mutex::new(Vec::new())));
@@ -480,6 +487,7 @@ async fn live_antigravity_acp_smoke() {
         Vec::new(),
         CliRunOpts {
             model: Some(model.into()),
+            effort: Some("low".into()),
             ..Default::default()
         },
     )
@@ -507,4 +515,31 @@ async fn live_antigravity_acp_smoke() {
         assert!(outcome.resume_id.is_some());
     }
     session.shutdown();
+}
+
+#[test]
+fn antigravity_legacy_selection_preserves_explicit_effort_and_model_ids() {
+    use super::super::acp_session::antigravity_selection;
+    let state = json!({ "configOptions": [{ "id": "model", "options": [
+        { "value": "gemini-carbon", "name": "Carbon" },
+        { "value": "gemini-legacy-low-thinking", "name": "Legacy (Low)" }
+    ] }], "models": { "availableModels": [
+        { "modelId": "gemini-legacy-low", "name": "Legacy (Low)" }
+    ] } });
+    assert_eq!(
+        antigravity_selection(&state, Some("gemini-carbon-high"), None),
+        (Some("gemini-carbon".into()), Some("high".into()))
+    );
+    assert_eq!(
+        antigravity_selection(&state, Some("gemini-carbon-high"), Some("low")),
+        (Some("gemini-carbon".into()), Some("low".into()))
+    );
+    assert_eq!(
+        antigravity_selection(&state, Some("gemini-legacy-low"), None),
+        (Some("gemini-legacy-low-thinking".into()), None)
+    );
+    assert_eq!(
+        antigravity_selection(&state, Some("unknown-high"), None),
+        (Some("unknown-high".into()), None)
+    );
 }

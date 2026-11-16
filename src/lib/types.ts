@@ -410,7 +410,7 @@ export interface RuntimePreset {
 export interface CliDefaults {
   model: string | null;
   effort: string | null;
-  models: { id: string; label: string }[] | null;
+  models: { id: string; label: string; efforts?: string[]; defaultEffort?: string | null; aliases?: string[] }[] | null;
 }
 
 /** Payload the quick panel forwards to the main window on submit. */

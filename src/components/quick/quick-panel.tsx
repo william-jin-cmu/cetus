@@ -923,6 +923,7 @@ export function QuickPanel() {
             backend={backend}
             model={cliModel}
             effort={cliEffort}
+            onTuningChange={onCliTuningMigrate}
             onModelChange={onCliModelChange}
             onEffortChange={onCliEffortChange}
             onMigrate={onPresetRow ? undefined : onCliTuningMigrate}

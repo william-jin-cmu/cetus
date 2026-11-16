@@ -42,6 +42,94 @@ fn configure_antigravity(command: &mut TokioCommand) -> Option<String> {
     matches!(method, "agent-platform" | "gemini-api-key").then(|| method.to_string())
 }
 
+fn antigravity_option<'a>(state: &'a Value, id: &str) -> Option<&'a Value> {
+    state
+        .get("configOptions")?
+        .as_array()?
+        .iter()
+        .find(|v| v["id"] == id)
+}
+
+/// Translate 0.5.9's combined ids only against ids/labels the agent advertises.
+pub(super) fn antigravity_selection(
+    state: &Value,
+    model: Option<&str>,
+    effort: Option<&str>,
+) -> (Option<String>, Option<String>) {
+    let options = antigravity_option(state, "model").and_then(|v| v["options"].as_array());
+    let mut selected_model = model.map(str::to_string);
+    let mut selected_effort = effort.map(str::to_string);
+    if let (Some(raw), Some(options)) = (model, options) {
+        if !options.iter().any(|v| v["value"] == raw) {
+            if let Some((base, level)) = options
+                .iter()
+                .filter_map(|v| {
+                    let base = v["value"].as_str()?;
+                    let level = raw.strip_prefix(&format!("{base}-"))?;
+                    matches!(level, "low" | "medium" | "high" | "xhigh" | "max")
+                        .then_some((base, level))
+                })
+                .next()
+            {
+                selected_model = Some(base.into());
+                if selected_effort.is_none() {
+                    selected_effort = Some(level.into());
+                }
+            } else if let Some(label) = state
+                .pointer("/models/availableModels")
+                .and_then(Value::as_array)
+                .and_then(|rows| rows.iter().find(|v| v["modelId"] == raw))
+                .and_then(|v| v["name"].as_str())
+            {
+                if let Some(row) = options.iter().find(|v| v["name"] == label) {
+                    selected_model = row["value"].as_str().map(str::to_string);
+                }
+            }
+        }
+    }
+    (selected_model, selected_effort)
+}
+
+async fn set_antigravity_tuning(
+    stdin: &mut tokio::process::ChildStdin,
+    reader: &mut tokio::io::Lines<BufReader<tokio::process::ChildStdout>>,
+    session_id: &str,
+    state: &Value,
+    opts: &CliRunOpts,
+) -> Result<()> {
+    let (model, effort) =
+        antigravity_selection(state, opts.model.as_deref(), opts.effort.as_deref());
+    let mut updated = state.clone();
+    if let Some(model) = model {
+        updated = acp_handshake_request(
+            stdin,
+            reader,
+            4,
+            "session/set_config_option",
+            json!({ "sessionId": session_id, "configId": "model", "value": model }),
+        )
+        .await?;
+    }
+    if let Some(effort) = effort {
+        let allowed = antigravity_option(&updated, "thought_level")
+            .and_then(|v| v["options"].as_array())
+            .is_some_and(|rows| rows.iter().any(|v| v["value"] == effort));
+        anyhow::ensure!(
+            allowed,
+            "Antigravity does not support effort {effort} for the selected model"
+        );
+        acp_handshake_request(
+            stdin,
+            reader,
+            5,
+            "session/set_config_option",
+            json!({ "sessionId": session_id, "configId": "thought_level", "value": effort }),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
 /// Catalog probe uses the same auth and environment as real sessions. No model
 /// request is made. Close the empty session before terminating the process.
 pub async fn probe_antigravity_catalog() -> Result<Value> {
@@ -77,7 +165,7 @@ pub async fn probe_antigravity_catalog() -> Result<Value> {
         )
         .await?;
     }
-    let result = acp_handshake_request(
+    let mut result = acp_handshake_request(
         &mut stdin,
         &mut reader,
         3,
@@ -85,16 +173,46 @@ pub async fn probe_antigravity_catalog() -> Result<Value> {
         json!({ "cwd": std::env::temp_dir(), "mcpServers": [] }),
     )
     .await?;
-    if let Some(id) = result.get("sessionId") {
-        let _ = acp_handshake_request(
+    let id = result["sessionId"]
+        .as_str()
+        .context("missing session id")?
+        .to_string();
+    let options = antigravity_option(&result, "model")
+        .and_then(|v| v["options"].as_array())
+        .context("missing Antigravity model options")?
+        .clone();
+    let mut models = Vec::new();
+    for (index, option) in options.iter().enumerate() {
+        let model = option["value"].as_str().context("missing model value")?;
+        let state = acp_handshake_request(
             &mut stdin,
             &mut reader,
-            4,
-            "session/close",
-            json!({ "sessionId": id }),
+            10 + index as u64,
+            "session/set_config_option",
+            json!({ "sessionId": id, "configId": "model", "value": model }),
         )
-        .await;
+        .await?;
+        let thinking = antigravity_option(&state, "thought_level");
+        models.push(json!({
+            "id": model, "label": option["name"],
+            "aliases": result.pointer("/models/availableModels").and_then(Value::as_array)
+                .map(|rows| rows.iter().filter_map(|v| v["modelId"].as_str())
+                    .filter(|raw| antigravity_selection(&result, Some(raw), None).0.as_deref() == Some(model))
+                    .collect::<Vec<_>>()).unwrap_or_default(),
+            "efforts": thinking.and_then(|v| v["options"].as_array()).map(|rows|
+                rows.iter().filter_map(|v| v["value"].as_str()).collect::<Vec<_>>()).unwrap_or_default(),
+            "defaultEffort": thinking.and_then(|v| v["currentValue"].as_str()),
+        }));
     }
+    result["cetusModels"] = json!(models);
+    let _ = acp_handshake_request(
+        &mut stdin,
+        &mut reader,
+        1000,
+        "session/close",
+        json!({ "sessionId": id }),
+    )
+    .await;
     let _ = child.kill().await;
     Ok(result)
 }
@@ -605,7 +723,7 @@ pub fn spawn_acp_session(
             .get("sessionId")
             .and_then(Value::as_str)
             .map(str::to_string)
-            .or_else(|| opts.resume.filter(|_| loaded_existing))
+            .or_else(|| opts.resume.clone().filter(|_| loaded_existing))
         else {
             tracing::warn!("{} ACP returned no session id", backend.as_str());
             fail_queued_acp_turns(
@@ -646,23 +764,20 @@ pub fn spawn_acp_session(
         }
 
         if backend == CliBackend::Antigravity {
-            if let Some(model_id) = opts.model.as_ref() {
-                let params = json!({ "sessionId": session_id, "modelId": model_id });
-                if let Err(error) =
-                    acp_handshake_request(&mut stdin, &mut reader, 4, "session/set_model", params)
-                        .await
-                {
-                    fail_queued_acp_turns(
-                        &mut rx,
-                        backend,
-                        artifact_dir.as_deref(),
-                        &translator_cwd,
-                        &conversation_id,
-                        &format!("Could not select Antigravity model: {error}"),
-                    );
-                    let _ = child.start_kill();
-                    return;
-                }
+            if let Err(error) =
+                set_antigravity_tuning(&mut stdin, &mut reader, &session_id, &session_result, &opts)
+                    .await
+            {
+                fail_queued_acp_turns(
+                    &mut rx,
+                    backend,
+                    artifact_dir.as_deref(),
+                    &translator_cwd,
+                    &conversation_id,
+                    &format!("Could not configure Antigravity: {error}"),
+                );
+                let _ = child.start_kill();
+                return;
             }
         }
 

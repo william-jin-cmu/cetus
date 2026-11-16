@@ -21,11 +21,17 @@ pub struct CliDefaults {
     pub models: Option<Vec<CliModelEntry>>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, serde::Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct CliModelEntry {
     pub id: String,
     pub label: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub efforts: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_effort: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub aliases: Option<Vec<String>>,
 }
 
 #[host::command]
@@ -58,33 +64,31 @@ pub async fn get_cli_defaults(backend: String) -> Result<CliDefaults, String> {
     })
 }
 
-/// Model ids include the vendor's native thinking level.
+/// Read independent model and thinking options, including each model's levels.
 async fn probe_antigravity_defaults() -> Option<CliDefaults> {
     let result = tokio::time::timeout(
-        Duration::from_secs(15),
+        Duration::from_secs(30),
         cetus_bridge::cli_agent::probe_antigravity_catalog(),
     )
     .await
     .ok()?
     .ok()?;
-    let models = result
-        .pointer("/models/availableModels")?
-        .as_array()?
-        .iter()
-        .filter_map(|model| {
-            Some(CliModelEntry {
-                id: model.get("modelId")?.as_str()?.into(),
-                label: model.get("name")?.as_str()?.into(),
-            })
-        })
-        .collect::<Vec<_>>();
+    antigravity_defaults(&result)
+}
+
+fn antigravity_defaults(result: &Value) -> Option<CliDefaults> {
+    let options = result["configOptions"].as_array()?;
+    let current = |id: &str| {
+        options
+            .iter()
+            .find(|v| v["id"] == id)
+            .and_then(|v| v["currentValue"].as_str())
+            .map(str::to_string)
+    };
     Some(CliDefaults {
-        model: result
-            .pointer("/models/currentModelId")
-            .and_then(Value::as_str)
-            .map(str::to_string),
-        models: Some(models),
-        effort: None,
+        model: current("model"),
+        effort: current("thought_level"),
+        models: Some(serde_json::from_value(result["cetusModels"].clone()).ok()?),
     })
 }
 
@@ -154,7 +158,11 @@ async fn probe_grok_defaults() -> Option<CliDefaults> {
                 .and_then(Value::as_str)
                 .unwrap_or(&id)
                 .to_string();
-            Some(CliModelEntry { id, label })
+            Some(CliModelEntry {
+                id,
+                label,
+                ..Default::default()
+            })
         })
         .collect();
     let selected = available
@@ -493,6 +501,7 @@ pub(super) fn claude_defaults_from_initialize(value: &Value) -> Option<CliDefaul
             Some(CliModelEntry {
                 id: id.to_string(),
                 label: claude_versioned_label(label, id, resolved),
+                ..Default::default()
             })
         })
         .collect();
@@ -581,7 +590,11 @@ fn codex_defaults(home: &Path) -> CliDefaults {
                         .and_then(|d| d.as_str())
                         .unwrap_or(&id)
                         .to_string();
-                    Some(CliModelEntry { id, label })
+                    Some(CliModelEntry {
+                        id,
+                        label,
+                        ..Default::default()
+                    })
                 })
                 .collect()
         })
