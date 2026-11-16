@@ -102,7 +102,7 @@ export default function (pi: ExtensionAPI) {
       runtime: Type.Optional(
         Type.String({
           description:
-            "Agent that runs the thread: 'cetus', 'claude-code' or 'codex'. Leave unset " +
+            "Agent that runs the thread: 'cetus', 'claude-code', 'codex', or 'antigravity'. Leave unset " +
             "unless the user or their standing instructions ask for a specific one; the " +
             "user's default is used.",
         }),
@@ -110,7 +110,7 @@ export default function (pi: ExtensionAPI) {
       model: Type.Optional(
         Type.String({
           description:
-            "Model for a 'claude-code' or 'codex' thread, by id or name (e.g. 'opus', " +
+            "Model for a CLI runtime thread, by id or name (e.g. 'opus', " +
             "'Claude Opus 5.5'). Only a model the user or their standing instructions " +
             "named; otherwise leave unset for the runtime's default.",
         }),

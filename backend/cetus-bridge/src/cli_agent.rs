@@ -19,7 +19,9 @@ use artifacts::{
 mod claude_session;
 pub use claude_session::{spawn_claude_session, ClaudeSessionHandle};
 mod acp_session;
-pub use acp_session::{spawn_acp_session, AcpPermissionAnswer, AcpSessionHandle};
+pub use acp_session::{
+    probe_antigravity_catalog, spawn_acp_session, AcpPermissionAnswer, AcpSessionHandle,
+};
 mod codex_session;
 use codex_session::codex_text_phase;
 pub use codex_session::{probe_codex_skills, spawn_codex_session, CodexSessionHandle};
@@ -43,6 +45,7 @@ pub enum CliBackend {
     OpenCode,
     Grok,
     Kimi,
+    Antigravity,
     Dsh,
 }
 impl CliBackend {
@@ -54,6 +57,7 @@ impl CliBackend {
             CliBackend::OpenCode => "opencode",
             CliBackend::Grok => "grok",
             CliBackend::Kimi => "kimi",
+            CliBackend::Antigravity => "antigravity",
             CliBackend::Dsh => "dsh",
         }
     }
@@ -65,6 +69,7 @@ impl CliBackend {
             "opencode" => Some(CliBackend::OpenCode),
             "grok" | "grok-build" => Some(CliBackend::Grok),
             "kimi" | "kimi-cli" => Some(CliBackend::Kimi),
+            "antigravity" | "agy" => Some(CliBackend::Antigravity),
             "dsh" | "deepseek-harness" => Some(CliBackend::Dsh),
             _ => None,
         }
@@ -78,12 +83,16 @@ impl CliBackend {
             CliBackend::OpenCode => "opencode",
             CliBackend::Grok => "grok",
             CliBackend::Kimi => "kimi",
+            CliBackend::Antigravity => "agy",
             CliBackend::Dsh => "dsh",
         }
     }
 
     pub fn is_acp(self) -> bool {
-        matches!(self, Self::OpenCode | Self::Grok | Self::Kimi | Self::Dsh)
+        matches!(
+            self,
+            Self::OpenCode | Self::Grok | Self::Kimi | Self::Antigravity | Self::Dsh
+        )
     }
 
     /// Arguments that start the vendor's native ACP stdio server.
@@ -92,6 +101,7 @@ impl CliBackend {
             Self::OpenCode => &["acp"],
             Self::Grok => &["agent", "stdio"],
             Self::Kimi => &["acp"],
+            Self::Antigravity => &["acp"],
             Self::Dsh => &["--profile", "acp"],
             _ => &[],
         }
@@ -232,7 +242,11 @@ impl CliBackend {
                 }
                 a.push(prompt.into());
             }
-            CliBackend::OpenCode | CliBackend::Grok | CliBackend::Kimi | CliBackend::Dsh => {
+            CliBackend::OpenCode
+            | CliBackend::Grok
+            | CliBackend::Kimi
+            | CliBackend::Antigravity
+            | CliBackend::Dsh => {
                 let _ = (prompt, opts);
             }
         }
@@ -1275,9 +1289,11 @@ impl EventTranslator {
         let events = match self.backend {
             CliBackend::ClaudeCode => self.on_claude(&v),
             CliBackend::Codex => self.on_codex(&v),
-            CliBackend::OpenCode | CliBackend::Grok | CliBackend::Kimi | CliBackend::Dsh => {
-                Vec::new()
-            }
+            CliBackend::OpenCode
+            | CliBackend::Grok
+            | CliBackend::Kimi
+            | CliBackend::Antigravity
+            | CliBackend::Dsh => Vec::new(),
         };
         self.with_open(events)
     }
@@ -1441,6 +1457,7 @@ fn auth_expired_hint(backend: CliBackend, stderr: &str) -> Option<String> {
         CliBackend::Grok => "grok login",
         // Kimi has no login subcommand — signing in happens inside the TUI.
         CliBackend::Kimi => "kimi, then /login",
+        CliBackend::Antigravity => "agy acp --login",
         CliBackend::Dsh => "dsh web, then finish provider setup",
     };
     Some(format!(

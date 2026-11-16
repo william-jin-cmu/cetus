@@ -254,6 +254,7 @@ export type BackendId =
   | "opencode"
   | "grok"
   | "kimi"
+  | "antigravity"
   | "dsh";
 
 /** Where a CLI-backend conversation's isolated changes live (git repo
@@ -381,6 +382,7 @@ export interface CliAgentSettings {
   opencodeEnabled: boolean;
   grokEnabled: boolean;
   kimiEnabled: boolean;
+  antigravityEnabled: boolean;
   dshEnabled: boolean;
   /** Picker order over runtime ids and preset ids, interleaved. Unknown ids
    *  are discarded; missing runtimes and presets append. */

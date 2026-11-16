@@ -36,6 +36,7 @@ const BACKENDS = [
   { id: "claude-code", label: "Claude Code", cls: "claude-code" },
   { id: "opencode", label: "OpenCode", cls: "opencode" },
   { id: "grok", label: "Grok Build", cls: "grok" },
+  { id: "antigravity", label: "Antigravity", cls: "antigravity" },
   { id: "kimi", label: "Kimi CLI", cls: "kimi" },
   { id: "dsh", label: "DeepSeek Harness", cls: "dsh" },
 ];

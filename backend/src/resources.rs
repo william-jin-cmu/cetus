@@ -82,6 +82,8 @@ fn classify(name: &str) -> (&'static str, String) {
         ("agent", "OpenCode".to_string())
     } else if lower == "grok" {
         ("agent", "Grok Build".to_string())
+    } else if lower == "agy" {
+        ("agent", "Antigravity".to_string())
     } else if lower == "kimi" {
         ("agent", "Kimi CLI".to_string())
     } else if lower == "dsh" {

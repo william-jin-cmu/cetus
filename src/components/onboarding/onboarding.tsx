@@ -33,6 +33,7 @@ const CLI_STATUS_OFFLINE: CliRuntimeStatus = {
   opencode: false,
   grok: false,
   kimi: false,
+  antigravity: false,
   dsh: false,
   codexLoggedIn: null,
 };

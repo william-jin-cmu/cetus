@@ -6,6 +6,7 @@ fn acp_updates_translate_text_tools_and_commands() {
         CliBackend::OpenCode,
         CliBackend::Grok,
         CliBackend::Kimi,
+        CliBackend::Antigravity,
         CliBackend::Dsh,
     ] {
         let mut tr = EventTranslator::new(backend);
@@ -155,6 +156,13 @@ fn native_acp_runtime_descriptors_are_stable() {
     assert_eq!(CliBackend::Grok.acp_args(), ["agent", "stdio"]);
     assert_eq!(CliBackend::from_id("kimi"), Some(CliBackend::Kimi));
     assert_eq!(CliBackend::Kimi.acp_args(), ["acp"]);
+    assert_eq!(
+        CliBackend::from_id("antigravity"),
+        Some(CliBackend::Antigravity)
+    );
+    assert_eq!(CliBackend::from_id("agy"), Some(CliBackend::Antigravity));
+    assert_eq!(CliBackend::Antigravity.default_bin(), "agy");
+    assert_eq!(CliBackend::Antigravity.acp_args(), ["acp"]);
 }
 
 #[cfg(unix)]
@@ -182,6 +190,8 @@ for raw in sys.stdin:
             "protocolVersion":1,
             "agentCapabilities":{"loadSession":True}
         }}), flush=True)
+    elif method in ("authenticate", "session/set_model"):
+        print(json.dumps({"jsonrpc":"2.0","id":msg["id"],"result":{}}), flush=True)
     elif method == "session/new":
         print(json.dumps({"jsonrpc":"2.0","id":msg["id"],"result":{
             "sessionId":"fake-session"
@@ -219,7 +229,12 @@ for raw in sys.stdin:
     .unwrap();
     std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
 
-    for backend in [CliBackend::OpenCode, CliBackend::Grok, CliBackend::Kimi] {
+    for backend in [
+        CliBackend::OpenCode,
+        CliBackend::Grok,
+        CliBackend::Kimi,
+        CliBackend::Antigravity,
+    ] {
         let sink = Arc::new(TestSink(std::sync::Mutex::new(Vec::new())));
         let session = spawn_acp_session(
             backend,
@@ -325,6 +340,8 @@ for raw in sys.stdin:
             "toolCall":{"toolCallId":"t0","title":"Early"},
             "options":[{"optionId":"allow-once","kind":"allow_once"}]
         }}), flush=True)
+    elif method in ("authenticate", "session/set_model"):
+        print(json.dumps({"jsonrpc":"2.0","id":msg["id"],"result":{}}), flush=True)
     elif method == "session/new":
         print(json.dumps({"jsonrpc":"2.0","id":msg["id"],"result":{
             "sessionId":"fresh-session"
@@ -439,4 +456,55 @@ async fn live_opencode_acp_smoke() {
     let messages = serde_json::to_string(&outcome.messages).unwrap();
     eprintln!("OpenCode ACP messages: {messages}");
     assert!(messages.contains("CETUS_ACP_OK"), "{messages}");
+}
+
+/// Uses the locally configured Antigravity account. Explicitly opt in: sends
+/// two tiny prompts to verify streaming, model selection and context retention.
+#[tokio::test]
+#[ignore]
+async fn live_antigravity_acp_smoke() {
+    let catalog = super::super::probe_antigravity_catalog().await.unwrap();
+    let model = catalog
+        .pointer("/models/currentModelId")
+        .and_then(Value::as_str)
+        .unwrap();
+    let dir = std::env::temp_dir().join("cetus-live-antigravity-acp");
+    std::fs::create_dir_all(&dir).unwrap();
+    let sink = Arc::new(TestSink(std::sync::Mutex::new(Vec::new())));
+    let session = spawn_acp_session(
+        CliBackend::Antigravity,
+        "agy",
+        &dir,
+        None,
+        Some("live-antigravity".into()),
+        Vec::new(),
+        CliRunOpts {
+            model: Some(model.into()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    for prompt in [
+        "Remember the marker CETUS_ACP_OK. Reply with exactly that marker. Do not use tools.",
+        "Reply with exactly the marker from my previous message. Do not use tools.",
+    ] {
+        let outcome = tokio::time::timeout(
+            Duration::from_secs(60),
+            session
+                .start_turn(
+                    prompt.into(),
+                    Vec::new(),
+                    sink.clone() as Arc<dyn EventSink>,
+                )
+                .unwrap(),
+        )
+        .await
+        .expect("Antigravity timeout")
+        .unwrap();
+        assert!(outcome.error.is_none(), "{:?}", outcome.error);
+        let messages = serde_json::to_string(&outcome.messages).unwrap();
+        assert!(messages.contains("CETUS_ACP_OK"), "{messages}");
+        assert!(outcome.resume_id.is_some());
+    }
+    session.shutdown();
 }

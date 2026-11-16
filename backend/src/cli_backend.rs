@@ -51,6 +51,7 @@ pub struct CliAgentSettings {
     pub opencode_enabled: bool,
     pub grok_enabled: bool,
     pub kimi_enabled: bool,
+    pub antigravity_enabled: bool,
     pub dsh_enabled: bool,
     /// Picker order over runtime ids and preset ids, interleaved. Unknown ids
     /// are discarded; runtimes and presets missing from the list are appended.
@@ -83,6 +84,7 @@ impl Default for CliAgentSettings {
             opencode_enabled: true,
             grok_enabled: true,
             kimi_enabled: true,
+            antigravity_enabled: true,
             dsh_enabled: true,
             runtime_order: vec![
                 "pi".into(),
@@ -91,6 +93,7 @@ impl Default for CliAgentSettings {
                 "opencode".into(),
                 "grok".into(),
                 "kimi".into(),
+                "antigravity".into(),
                 "dsh".into(),
             ],
             runtime_presets: Vec::new(),
@@ -99,13 +102,14 @@ impl Default for CliAgentSettings {
 }
 
 const SETTINGS_KEY: &str = "cli_agents";
-const RUNTIME_IDS: [&str; 7] = [
+const RUNTIME_IDS: [&str; 8] = [
     "pi",
     "claude-code",
     "codex",
     "opencode",
     "grok",
     "kimi",
+    "antigravity",
     "dsh",
 ];
 

@@ -18,8 +18,9 @@ export const DEFAULT_CLI_AGENT_SETTINGS: CliAgentSettings = {
   opencodeEnabled: true,
   grokEnabled: true,
   kimiEnabled: true,
+  antigravityEnabled: true,
   dshEnabled: true,
-  runtimeOrder: ["pi", "claude-code", "codex", "opencode", "grok", "kimi", "dsh"],
+  runtimeOrder: ["pi", "claude-code", "codex", "opencode", "grok", "kimi", "antigravity", "dsh"],
   runtimePresets: [],
 };
 
@@ -38,6 +39,8 @@ export function isBackendEnabled(
       return settings.opencodeEnabled;
     case "grok":
       return settings.grokEnabled;
+    case "antigravity":
+      return settings.antigravityEnabled;
     case "kimi":
       return settings.kimiEnabled;
     case "dsh":

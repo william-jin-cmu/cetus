@@ -15,6 +15,7 @@ fn legacy_cli_settings_enable_and_order_every_runtime_by_default() {
     assert!(settings.opencode_enabled);
     assert!(settings.grok_enabled);
     assert!(settings.kimi_enabled);
+    assert!(settings.antigravity_enabled);
     assert!(settings.dsh_enabled);
     assert_eq!(
         settings.runtime_order,
@@ -25,6 +26,7 @@ fn legacy_cli_settings_enable_and_order_every_runtime_by_default() {
             "opencode",
             "grok",
             "kimi",
+            "antigravity",
             "dsh"
         ]
     );
@@ -46,6 +48,7 @@ fn runtime_order_deduplicates_discards_unknown_and_appends_new_entries() {
             "codex",
             "opencode",
             "grok",
+            "antigravity",
             "dsh"
         ]
     );
@@ -95,6 +98,7 @@ fn runtime_order_keeps_presets_interleaved_and_drops_invalid_ones() {
             "opencode",
             "grok",
             "kimi",
+            "antigravity",
             "dsh",
             "preset-b"
         ]

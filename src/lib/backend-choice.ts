@@ -14,6 +14,7 @@ const BACKEND_IDS: BackendId[] = [
   "opencode",
   "grok",
   "kimi",
+  "antigravity",
   "dsh",
 ];
 type CliBackendId = Exclude<BackendId, "pi">;

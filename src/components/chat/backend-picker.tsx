@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronDown, Settings2 } from "lucide-react";
+import { Check, ChevronDown, Settings2, Orbit } from "lucide-react";
 import { api } from "@/lib/api";
 import { useChatStore } from "@/lib/chat-store";
 import type {
@@ -67,6 +67,7 @@ export const BACKENDS: { id: BackendId; label: string; icon: AppIcon }[] = [
   { id: "codex", label: "Codex", icon: CodexIcon },
   { id: "opencode", label: "OpenCode", icon: OpenCodeIcon },
   { id: "grok", label: "Grok Build", icon: GrokIcon },
+  { id: "antigravity", label: "Antigravity", icon: Orbit },
   { id: "kimi", label: "Kimi CLI", icon: KimiIcon },
   { id: "dsh", label: "DeepSeek Harness", icon: DshIcon },
 ];
@@ -83,7 +84,7 @@ export function useRuntimeCatalog() {
   return { orderedBackends, entries, enabledBackendIds };
 }
 
-export type TunableBackendId = "claude-code" | "codex" | "grok" | "dsh";
+export type TunableBackendId = "claude-code" | "codex" | "grok" | "dsh" | "antigravity";
 
 export function backendSupportsTuning(
   backend: BackendId,
@@ -91,6 +92,7 @@ export function backendSupportsTuning(
   return (
     backend === "claude-code" ||
     backend === "codex" ||
+    backend === "antigravity" ||
     backend === "grok" ||
     backend === "dsh"
   );
@@ -249,6 +251,7 @@ export const CLI_MODELS: Record<
     { id: "gpt-5.4-mini", label: "GPT-5.4-Mini" },
     { id: "gpt-5.3-codex-spark", label: "GPT-5.3-Codex-Spark" },
   ],
+  antigravity: [],
   grok: [
     { id: "grok-4.5", label: "Grok 4.5" },
   ],
@@ -278,6 +281,7 @@ export const CLI_EFFORTS: Record<
     { id: "high", label: "High" },
     { id: "xhigh", label: "XHigh" },
   ],
+  antigravity: [],
   grok: [
     { id: "low", label: "Low" },
     { id: "medium", label: "Medium" },
@@ -561,9 +565,11 @@ export function CliTuningMenu({
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="min-w-44">
-        <DropdownMenuLabel className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          Reasoning
-        </DropdownMenuLabel>
+        {efforts.length > 0 && (
+          <DropdownMenuLabel className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Reasoning
+          </DropdownMenuLabel>
+        )}
         {efforts.map((e) => (
           <DropdownMenuItem
             key={e.id}
@@ -574,7 +580,7 @@ export function CliTuningMenu({
             {e.id === curEffort?.id && <Check className="size-3.5" />}
           </DropdownMenuItem>
         ))}
-        <DropdownMenuSeparator />
+        {efforts.length > 0 && <DropdownMenuSeparator />}
         <DropdownMenuSub>
           <DropdownMenuSubTrigger className="text-xs">
             {shownModel}

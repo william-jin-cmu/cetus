@@ -1607,5 +1607,6 @@ const RUNTIME_MENTION_SLUGS: Partial<Record<BackendId, string>> = {
   opencode: "opencode",
   grok: "grok",
   kimi: "kimi",
+  antigravity: "agy",
   dsh: "deepseek",
 };

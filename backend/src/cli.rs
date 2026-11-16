@@ -83,15 +83,15 @@ THREAD — a thread is an ordinary Cetus session (shown in the user's Threads
 view) that works on one task. Nothing is reported back to your conversation:
 the user reads each thread's status and reply on its card. It can't see your
 conversation, so `start` must carry everything: the user's request verbatim,
-then the context it needs. Runtime: cetus | claude-code | codex (default: the
-user's). --model only for claude-code/codex, and only one the user named.
+then the context it needs. Runtime: cetus | claude-code | codex | antigravity (default: the
+user's). --model only for CLI runtimes, and only one the user named.
 Don't poll it or narrate its result.
 
 INPUT JSON — create requires name/prompt/schedule; edit takes any subset:
   {"name":"…","prompt":"…","schedule":<schedule>,
    "workspaceDir":"/abs/path",           // optional; agent cwd default
    "enabled":true,                       // optional; default true
-   "backend":"pi"|"claude-code"|"codex", // optional; default "pi"
+   "backend":"pi"|"claude-code"|"codex"|"antigravity", // optional; default "pi"
    "cliModel":"…","cliEffort":"…"}       // optional, CLI backends only
 
 SCHEDULE (all times local):
