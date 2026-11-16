@@ -10,6 +10,7 @@ export const RUNTIME_THEME: Record<BackendId, { color: string }> = {
   codex: { color: "var(--runtime-codex)" },
   opencode: { color: "var(--runtime-opencode)" },
   grok: { color: "var(--runtime-grok)" },
+  antigravity: { color: "var(--runtime-antigravity)" },
   kimi: { color: "var(--runtime-kimi)" },
   dsh: { color: "var(--runtime-dsh)" },
 };

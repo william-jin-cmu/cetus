@@ -73,6 +73,7 @@ const RUNTIME_COMMANDS: Record<BackendId, string> = {
   opencode: "opencode acp",
   grok: "grok agent stdio",
   kimi: "kimi acp",
+  antigravity: "agy acp",
   dsh: "dsh web + Cetus bridge",
 };
 
@@ -89,6 +90,8 @@ function runtimeEnabledPatch(
       return { opencodeEnabled: enabled };
     case "grok":
       return { grokEnabled: enabled };
+    case "antigravity":
+      return { antigravityEnabled: enabled };
     case "kimi":
       return { kimiEnabled: enabled };
     case "dsh":

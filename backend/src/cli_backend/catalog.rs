@@ -51,9 +51,40 @@ pub async fn get_cli_defaults(backend: String) -> Result<CliDefaults, String> {
             defaults
         }
         "codex" => codex_defaults(&home),
+        "antigravity" => probe_antigravity_defaults().await.unwrap_or_default(),
         "grok" => probe_grok_defaults().await.unwrap_or_default(),
         "dsh" => dsh_defaults(&home),
         _ => CliDefaults::default(),
+    })
+}
+
+/// Model ids include the vendor's native thinking level.
+async fn probe_antigravity_defaults() -> Option<CliDefaults> {
+    let result = tokio::time::timeout(
+        Duration::from_secs(15),
+        cetus_bridge::cli_agent::probe_antigravity_catalog(),
+    )
+    .await
+    .ok()?
+    .ok()?;
+    let models = result
+        .pointer("/models/availableModels")?
+        .as_array()?
+        .iter()
+        .filter_map(|model| {
+            Some(CliModelEntry {
+                id: model.get("modelId")?.as_str()?.into(),
+                label: model.get("name")?.as_str()?.into(),
+            })
+        })
+        .collect::<Vec<_>>();
+    Some(CliDefaults {
+        model: result
+            .pointer("/models/currentModelId")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        models: Some(models),
+        effort: None,
     })
 }
 
@@ -151,6 +182,7 @@ pub struct CliRuntimeStatus {
     pub opencode: bool,
     pub grok: bool,
     pub kimi: bool,
+    pub antigravity: bool,
     pub dsh: bool,
     /// `Some(false)` = the codex binary exists but has no visible credentials
     /// (no `~/.codex/auth.json`, no `OPENAI_API_KEY` in this process's env), so
@@ -180,6 +212,7 @@ pub async fn get_cli_runtime_status() -> Result<CliRuntimeStatus, String> {
         opencode: executable_on_path("opencode"),
         grok: executable_on_path("grok"),
         kimi: executable_on_path("kimi"),
+        antigravity: executable_on_path("agy"),
         dsh: executable_on_path("dsh"),
         codex_logged_in: codex.then(codex_logged_in),
     })

@@ -454,6 +454,7 @@ export const api = {
       opencode: boolean;
       grok: boolean;
       kimi: boolean;
+      antigravity: boolean;
       dsh: boolean;
       /** null = codex not installed; false = installed but no credentials. */
       codexLoggedIn: boolean | null;

@@ -11,7 +11,7 @@ use std::time::Duration;
 use tokio::process::Command;
 
 /// Runtimes worth probing, matching `CliRuntimeStatus`.
-const RUNTIMES: &[&str] = &["claude", "codex", "opencode", "grok", "kimi", "dsh"];
+const RUNTIMES: &[&str] = &["claude", "codex", "opencode", "grok", "kimi", "agy", "dsh"];
 
 #[host::command]
 pub async fn export_diagnostics() -> Result<String, String> {

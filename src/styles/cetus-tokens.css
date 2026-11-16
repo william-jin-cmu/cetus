@@ -11,6 +11,7 @@
   --runtime-codex: #10a37f;
   --runtime-opencode: #7f7f7f;
   --runtime-grok: #71717a;
+  --runtime-antigravity: #4285f4;
   --runtime-kimi: #1783ff;
   /* dsh brands in pure black; track the foreground so it flips in dark mode. */
   --runtime-dsh: var(--ink);

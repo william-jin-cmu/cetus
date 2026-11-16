@@ -66,7 +66,7 @@ export function runtimeToBackend(runtime: unknown): BackendId | null {
   if (r === "cetus" || r === "pi") return "pi";
   if (r === "claude-code" || r === "claude" || r === "claude code") return "claude-code";
   if (r === "codex") return "codex";
-  if (r === "opencode" || r === "grok" || r === "kimi" || r === "dsh") return r;
+  if (r === "opencode" || r === "grok" || r === "antigravity" || r === "kimi" || r === "dsh") return r;
   return null;
 }
 

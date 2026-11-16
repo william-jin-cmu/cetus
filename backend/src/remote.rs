@@ -3,6 +3,7 @@
 //!   `remote_secure.rs`) through the relay or the direct `/v1/direct` socket;
 //! - the legacy browser page served on localhost and published through
 //!   Tailscale Serve (cookie auth).
+//!
 //! The remote surface intentionally exposes only conversation operations;
 //! native files, terminal, secrets and settings never enter this API.
 
@@ -1151,7 +1152,8 @@ async fn phone_tuning(state: &AppState, backend: &str) -> Value {
             "effort": default.reasoning,
         });
     }
-    let (fallback, efforts): (&[(&str, &str)], &[(&str, &str)]) = match backend {
+    type Options = &'static [(&'static str, &'static str)];
+    let (fallback, efforts): (Options, Options) = match backend {
         "claude-code" => (
             &[
                 ("fable", "Fable"),
@@ -1181,6 +1183,7 @@ async fn phone_tuning(state: &AppState, backend: &str) -> Value {
                 ("xhigh", "XHigh"),
             ],
         ),
+        "antigravity" => (&[], &[]),
         "grok" => (
             &[("grok-4.5", "Grok 4.5")],
             &[("low", "Low"), ("medium", "Medium"), ("high", "High")],

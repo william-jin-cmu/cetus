@@ -14,6 +14,91 @@ use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command as TokioCommand;
 
+/// Optional local credentials are scoped to Antigravity child processes only.
+/// This file is deliberately outside the checkout and never logged.
+fn configure_antigravity(command: &mut TokioCommand) -> Option<String> {
+    let home = std::env::var_os("HOME").map(PathBuf::from)?;
+    let path = home.join(".config/cetus/antigravity/env.json");
+    if let Ok(raw) = std::fs::read_to_string(path) {
+        if let Ok(env) = serde_json::from_str::<HashMap<String, String>>(&raw) {
+            for (key, value) in env {
+                if matches!(
+                    key.as_str(),
+                    "GEMINI_API_KEY"
+                        | "GOOGLE_API_KEY"
+                        | "GOOGLE_CLOUD_PROJECT"
+                        | "GOOGLE_CLOUD_LOCATION"
+                        | "GOOGLE_APPLICATION_CREDENTIALS"
+                        | "GOOGLE_GEMINI_BASE_URL"
+                ) {
+                    command.env(key, value);
+                }
+            }
+        }
+    }
+    let raw = std::fs::read_to_string(home.join(".gemini/antigravity-cli/settings.json")).ok()?;
+    let settings: Value = serde_json::from_str(&raw).ok()?;
+    let method = settings.pointer("/auth/type")?.as_str()?;
+    matches!(method, "agent-platform" | "gemini-api-key").then(|| method.to_string())
+}
+
+/// Catalog probe uses the same auth and environment as real sessions. No model
+/// request is made. Close the empty session before terminating the process.
+pub async fn probe_antigravity_catalog() -> Result<Value> {
+    let mut command = TokioCommand::new("agy");
+    command
+        .arg("acp")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .kill_on_drop(true);
+    let auth = configure_antigravity(&mut command);
+    let mut child = command.spawn()?;
+    let mut stdin = child.stdin.take().context("missing stdin")?;
+    let mut reader = BufReader::new(child.stdout.take().context("missing stdout")?).lines();
+    acp_handshake_request(
+        &mut stdin,
+        &mut reader,
+        1,
+        "initialize",
+        json!({
+            "protocolVersion": 1, "clientCapabilities": {},
+            "clientInfo": { "name": "cetus", "version": env!("CARGO_PKG_VERSION") }
+        }),
+    )
+    .await?;
+    if let Some(method) = auth {
+        acp_handshake_request(
+            &mut stdin,
+            &mut reader,
+            2,
+            "authenticate",
+            json!({ "methodId": method }),
+        )
+        .await?;
+    }
+    let result = acp_handshake_request(
+        &mut stdin,
+        &mut reader,
+        3,
+        "session/new",
+        json!({ "cwd": std::env::temp_dir(), "mcpServers": [] }),
+    )
+    .await?;
+    if let Some(id) = result.get("sessionId") {
+        let _ = acp_handshake_request(
+            &mut stdin,
+            &mut reader,
+            4,
+            "session/close",
+            json!({ "sessionId": id }),
+        )
+        .await;
+    }
+    let _ = child.kill().await;
+    Ok(result)
+}
+
 /// One persistent native-ACP process and session. OpenCode, Grok Build and
 /// Kimi differ only in argv; their wire behavior is handled here.
 #[derive(Clone)]
@@ -307,6 +392,11 @@ pub fn spawn_acp_session(
     for (key, value) in extra_env {
         command.env(key, value);
     }
+    let antigravity_auth = if backend == CliBackend::Antigravity {
+        configure_antigravity(&mut command)
+    } else {
+        None
+    };
     let mut child = command
         .spawn()
         .with_context(|| format!("failed to launch `{bin} {}`", backend.acp_args().join(" ")))?;
@@ -404,6 +494,28 @@ pub fn spawn_acp_session(
                 return;
             }
         };
+        if let Some(method) = antigravity_auth {
+            if let Err(error) = acp_handshake_request(
+                &mut stdin,
+                &mut reader,
+                100,
+                "authenticate",
+                json!({ "methodId": method }),
+            )
+            .await
+            {
+                fail_queued_acp_turns(
+                    &mut rx,
+                    backend,
+                    artifact_dir.as_deref(),
+                    &translator_cwd,
+                    &conversation_id,
+                    &format!("Antigravity authentication failed: {error}"),
+                );
+                let _ = child.start_kill();
+                return;
+            }
+        }
         let can_load = init
             .pointer("/agentCapabilities/loadSession")
             .and_then(Value::as_bool)
@@ -529,6 +641,27 @@ pub fn spawn_acp_session(
                         .await
                 {
                     tracing::warn!("Grok ACP session/set_model failed: {error}");
+                }
+            }
+        }
+
+        if backend == CliBackend::Antigravity {
+            if let Some(model_id) = opts.model.as_ref() {
+                let params = json!({ "sessionId": session_id, "modelId": model_id });
+                if let Err(error) =
+                    acp_handshake_request(&mut stdin, &mut reader, 4, "session/set_model", params)
+                        .await
+                {
+                    fail_queued_acp_turns(
+                        &mut rx,
+                        backend,
+                        artifact_dir.as_deref(),
+                        &translator_cwd,
+                        &conversation_id,
+                        &format!("Could not select Antigravity model: {error}"),
+                    );
+                    let _ = child.start_kill();
+                    return;
                 }
             }
         }

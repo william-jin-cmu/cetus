@@ -185,6 +185,7 @@ pub async fn set_conversation_backend(
         "opencode" => cli_settings.opencode_enabled,
         "grok" => cli_settings.grok_enabled,
         "kimi" => cli_settings.kimi_enabled,
+        "antigravity" => cli_settings.antigravity_enabled,
         "dsh" => cli_settings.dsh_enabled,
         _ => true,
     };
@@ -236,6 +237,7 @@ fn backend_label(id: &str) -> &str {
         "opencode" => "OpenCode",
         "grok" => "Grok Build",
         "kimi" => "Kimi CLI",
+        "antigravity" => "Antigravity",
         "dsh" => "Dsh",
         other => other,
     }
