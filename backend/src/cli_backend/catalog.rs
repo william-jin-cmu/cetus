@@ -57,7 +57,8 @@ pub async fn get_cli_defaults(backend: String) -> Result<CliDefaults, String> {
             defaults
         }
         "codex" => codex_defaults(&home),
-        "antigravity" => probe_antigravity_defaults().await.unwrap_or_default(),
+        "antigravity" => probe_acp_defaults(false).await.unwrap_or_default(),
+        "opencode" => probe_acp_defaults(true).await.unwrap_or_default(),
         "grok" => probe_grok_defaults().await.unwrap_or_default(),
         "dsh" => dsh_defaults(&home),
         _ => CliDefaults::default(),
@@ -65,18 +66,21 @@ pub async fn get_cli_defaults(backend: String) -> Result<CliDefaults, String> {
 }
 
 /// Read independent model and thinking options, including each model's levels.
-async fn probe_antigravity_defaults() -> Option<CliDefaults> {
-    let result = tokio::time::timeout(
-        Duration::from_secs(30),
-        cetus_bridge::cli_agent::probe_antigravity_catalog(),
-    )
+async fn probe_acp_defaults(opencode: bool) -> Option<CliDefaults> {
+    let result = tokio::time::timeout(Duration::from_secs(30), async {
+        if opencode {
+            cetus_bridge::cli_agent::probe_opencode_catalog().await
+        } else {
+            cetus_bridge::cli_agent::probe_antigravity_catalog().await
+        }
+    })
     .await
     .ok()?
     .ok()?;
-    antigravity_defaults(&result)
+    acp_defaults(&result, if opencode { "effort" } else { "thought_level" })
 }
 
-fn antigravity_defaults(result: &Value) -> Option<CliDefaults> {
+fn acp_defaults(result: &Value, effort_id: &str) -> Option<CliDefaults> {
     let options = result["configOptions"].as_array()?;
     let current = |id: &str| {
         options
@@ -87,7 +91,7 @@ fn antigravity_defaults(result: &Value) -> Option<CliDefaults> {
     };
     Some(CliDefaults {
         model: current("model"),
-        effort: current("thought_level"),
+        effort: current(effort_id),
         models: Some(serde_json::from_value(result["cetusModels"].clone()).ok()?),
     })
 }

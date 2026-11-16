@@ -26,7 +26,7 @@ import { CSS } from "@dnd-kit/utilities";
 import {
   BACKENDS,
   cliEffortCatalog,
-  antigravityTuning,
+  catalogTuning,
   backendSupportsTuning,
   cliModelCatalog,
   resolveCliEffort,
@@ -446,8 +446,8 @@ function AddPresetForm({ onAdd }: { onAdd: (preset: RuntimePreset) => void }) {
   const models = cliModelCatalog(backend, defaults);
   const curModel = resolveCliModel(model, models, defaults) ?? models[0];
   const efforts = cliEffortCatalog(backend, curModel?.id ?? "", defaults);
-  const resolvedEffort = backend === "antigravity"
-    ? antigravityTuning(curModel?.id ?? "", effort, defaults).effort : effort;
+  const resolvedEffort = (backend === "antigravity" || backend === "opencode")
+    ? catalogTuning(curModel?.id ?? "", effort, defaults).effort : effort;
   const curEffort = resolveCliEffort(resolvedEffort, efforts, defaults);
   const tunableBackends = BACKENDS.filter((runtime) =>
     backendSupportsTuning(runtime.id),

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { antigravityTuning } from "../src/lib/antigravity-tuning";
+import { catalogTuning } from "../src/lib/catalog-tuning";
 const defaults = { model: "carbon", effort: "medium", models: [
   { id: "carbon", label: "Carbon", efforts: ["low", "medium", "high"], defaultEffort: "medium" },
   { id: "hydrogen", label: "Hydrogen", efforts: ["low", "medium", "high", "xhigh"], defaultEffort: "high" },
@@ -7,19 +7,29 @@ const defaults = { model: "carbon", effort: "medium", models: [
 ] };
 describe("Antigravity independent tuning", () => {
   test("migrates a combined selection without losing its effort", () => {
-    expect(antigravityTuning("carbon-high", "", defaults)).toEqual({model: "carbon", effort: "high"});
-    expect(antigravityTuning("carbon-high", "low", defaults)).toEqual({model: "carbon", effort: "low"});
+    expect(catalogTuning("carbon-high", "", defaults)).toEqual({model: "carbon", effort: "high"});
+    expect(catalogTuning("carbon-high", "low", defaults)).toEqual({model: "carbon", effort: "low"});
   });
   test("switching models clears unsupported effort using the new model default", () => {
-    expect(antigravityTuning("carbon", "xhigh", defaults)).toEqual({model: "carbon", effort: "medium"});
-    expect(antigravityTuning("hydrogen", "xhigh", defaults)).toEqual({model: "hydrogen", effort: "xhigh"});
-    expect(antigravityTuning("fixed", "high", defaults)).toEqual({model: "fixed", effort: ""});
+    expect(catalogTuning("carbon", "xhigh", defaults)).toEqual({model: "carbon", effort: "medium"});
+    expect(catalogTuning("hydrogen", "xhigh", defaults)).toEqual({model: "hydrogen", effort: "xhigh"});
+    expect(catalogTuning("fixed", "high", defaults)).toEqual({model: "fixed", effort: ""});
   });
   test("migrates fixed legacy model aliases using the advertised mapping", () => {
-    expect(antigravityTuning("legacy-low", "", defaults)).toEqual({model: "fixed", effort: ""});
+    expect(catalogTuning("legacy-low", "", defaults)).toEqual({model: "fixed", effort: ""});
   });
   test("does not rewrite before the catalog loads or guess unknown model ids", () => {
-    expect(antigravityTuning("carbon-high", "", null)).toEqual({model: "carbon-high", effort: ""});
-    expect(antigravityTuning("unknown-high", "", defaults)).toEqual({model: "unknown-high", effort: ""});
+    expect(catalogTuning("carbon-high", "", null)).toEqual({model: "carbon-high", effort: ""});
+    expect(catalogTuning("unknown-high", "", defaults)).toEqual({model: "unknown-high", effort: ""});
   });
 });
+
+ test("OpenCode provider/model IDs preserve their separate effort", () => {
+   const catalog = {model: "gcp-gemini/gemini-4-carbon", effort: "low", models: [
+     {id: "gcp-gemini/gemini-4-carbon", label: "Carbon", efforts: ["low", "medium", "high"], defaultEffort: "low"},
+     {id: "opencode/big-pickle", label: "Big Pickle", efforts: []},
+   ]};
+   expect(catalogTuning("", "", catalog)).toEqual({model: "gcp-gemini/gemini-4-carbon", effort: "low"});
+   expect(catalogTuning("gcp-gemini/gemini-4-carbon", "high", catalog)).toEqual({model: "gcp-gemini/gemini-4-carbon", effort: "high"});
+   expect(catalogTuning("opencode/big-pickle", "high", catalog)).toEqual({model: "opencode/big-pickle", effort: ""});
+ });

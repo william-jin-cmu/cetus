@@ -42,7 +42,7 @@ fn configure_antigravity(command: &mut TokioCommand) -> Option<String> {
     matches!(method, "agent-platform" | "gemini-api-key").then(|| method.to_string())
 }
 
-fn antigravity_option<'a>(state: &'a Value, id: &str) -> Option<&'a Value> {
+fn acp_config_option<'a>(state: &'a Value, id: &str) -> Option<&'a Value> {
     state
         .get("configOptions")?
         .as_array()?
@@ -56,7 +56,7 @@ pub(super) fn antigravity_selection(
     model: Option<&str>,
     effort: Option<&str>,
 ) -> (Option<String>, Option<String>) {
-    let options = antigravity_option(state, "model").and_then(|v| v["options"].as_array());
+    let options = acp_config_option(state, "model").and_then(|v| v["options"].as_array());
     let mut selected_model = model.map(str::to_string);
     let mut selected_effort = effort.map(str::to_string);
     if let (Some(raw), Some(options)) = (model, options) {
@@ -90,15 +90,24 @@ pub(super) fn antigravity_selection(
     (selected_model, selected_effort)
 }
 
-async fn set_antigravity_tuning(
+async fn set_acp_tuning(
+    backend: CliBackend,
     stdin: &mut tokio::process::ChildStdin,
     reader: &mut tokio::io::Lines<BufReader<tokio::process::ChildStdout>>,
     session_id: &str,
     state: &Value,
     opts: &CliRunOpts,
 ) -> Result<()> {
-    let (model, effort) =
-        antigravity_selection(state, opts.model.as_deref(), opts.effort.as_deref());
+    let (model, effort) = if backend == CliBackend::Antigravity {
+        antigravity_selection(state, opts.model.as_deref(), opts.effort.as_deref())
+    } else {
+        (opts.model.clone(), opts.effort.clone())
+    };
+    let effort_id = if backend == CliBackend::OpenCode {
+        "effort"
+    } else {
+        "thought_level"
+    };
     let mut updated = state.clone();
     if let Some(model) = model {
         updated = acp_handshake_request(
@@ -111,19 +120,20 @@ async fn set_antigravity_tuning(
         .await?;
     }
     if let Some(effort) = effort {
-        let allowed = antigravity_option(&updated, "thought_level")
+        let allowed = acp_config_option(&updated, effort_id)
             .and_then(|v| v["options"].as_array())
             .is_some_and(|rows| rows.iter().any(|v| v["value"] == effort));
         anyhow::ensure!(
             allowed,
-            "Antigravity does not support effort {effort} for the selected model"
+            "{} does not support effort {effort} for the selected model",
+            backend.as_str()
         );
         acp_handshake_request(
             stdin,
             reader,
             5,
             "session/set_config_option",
-            json!({ "sessionId": session_id, "configId": "thought_level", "value": effort }),
+            json!({ "sessionId": session_id, "configId": effort_id, "value": effort }),
         )
         .await?;
     }
@@ -133,14 +143,31 @@ async fn set_antigravity_tuning(
 /// Catalog probe uses the same auth and environment as real sessions. No model
 /// request is made. Close the empty session before terminating the process.
 pub async fn probe_antigravity_catalog() -> Result<Value> {
-    let mut command = TokioCommand::new("agy");
+    probe_config_catalog(CliBackend::Antigravity).await
+}
+
+pub async fn probe_opencode_catalog() -> Result<Value> {
+    probe_config_catalog(CliBackend::OpenCode).await
+}
+
+async fn probe_config_catalog(backend: CliBackend) -> Result<Value> {
+    let effort_id = if backend == CliBackend::OpenCode {
+        "effort"
+    } else {
+        "thought_level"
+    };
+    let mut command = TokioCommand::new(backend.default_bin());
     command
         .arg("acp")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .kill_on_drop(true);
-    let auth = configure_antigravity(&mut command);
+    let auth = if backend == CliBackend::Antigravity {
+        configure_antigravity(&mut command)
+    } else {
+        None
+    };
     let mut child = command.spawn()?;
     let mut stdin = child.stdin.take().context("missing stdin")?;
     let mut reader = BufReader::new(child.stdout.take().context("missing stdout")?).lines();
@@ -177,9 +204,9 @@ pub async fn probe_antigravity_catalog() -> Result<Value> {
         .as_str()
         .context("missing session id")?
         .to_string();
-    let options = antigravity_option(&result, "model")
+    let options = acp_config_option(&result, "model")
         .and_then(|v| v["options"].as_array())
-        .context("missing Antigravity model options")?
+        .context("missing ACP model options")?
         .clone();
     let mut models = Vec::new();
     for (index, option) in options.iter().enumerate() {
@@ -192,7 +219,7 @@ pub async fn probe_antigravity_catalog() -> Result<Value> {
             json!({ "sessionId": id, "configId": "model", "value": model }),
         )
         .await?;
-        let thinking = antigravity_option(&state, "thought_level");
+        let thinking = acp_config_option(&state, effort_id);
         models.push(json!({
             "id": model, "label": option["name"],
             "aliases": result.pointer("/models/availableModels").and_then(Value::as_array)
@@ -763,10 +790,16 @@ pub fn spawn_acp_session(
             }
         }
 
-        if backend == CliBackend::Antigravity {
-            if let Err(error) =
-                set_antigravity_tuning(&mut stdin, &mut reader, &session_id, &session_result, &opts)
-                    .await
+        if matches!(backend, CliBackend::Antigravity | CliBackend::OpenCode) {
+            if let Err(error) = set_acp_tuning(
+                backend,
+                &mut stdin,
+                &mut reader,
+                &session_id,
+                &session_result,
+                &opts,
+            )
+            .await
             {
                 fail_queued_acp_turns(
                     &mut rx,
@@ -774,7 +807,7 @@ pub fn spawn_acp_session(
                     artifact_dir.as_deref(),
                     &translator_cwd,
                     &conversation_id,
-                    &format!("Could not configure Antigravity: {error}"),
+                    &format!("Could not configure {}: {error}", backend.as_str()),
                 );
                 let _ = child.start_kill();
                 return;

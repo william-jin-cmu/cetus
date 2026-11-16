@@ -180,8 +180,9 @@ async fn acp_session_end_to_end_with_permission_and_tool_updates() {
     std::fs::write(
         &script,
         r#"#!/usr/bin/env python3
-import json, sys
+import json, sys, os
 prompt_id = None
+tuning = []
 for raw in sys.stdin:
     msg = json.loads(raw)
     method = msg.get("method")
@@ -192,11 +193,18 @@ for raw in sys.stdin:
         }}), flush=True)
     elif method in ("authenticate", "session/set_model"):
         print(json.dumps({"jsonrpc":"2.0","id":msg["id"],"result":{}}), flush=True)
+    elif method == "session/set_config_option":
+        tuning.append((msg["params"]["configId"], msg["params"]["value"]))
+        print(json.dumps({"jsonrpc":"2.0","id":msg["id"],"result":{"configOptions":[{
+            "id":"effort","options":[{"value":"low"}]
+        }]}}), flush=True)
     elif method == "session/new":
         print(json.dumps({"jsonrpc":"2.0","id":msg["id"],"result":{
             "sessionId":"fake-session"
         }}), flush=True)
     elif method == "session/prompt":
+        if os.environ.get("EXPECT_TUNING"):
+            assert tuning == [("model", "company/carbon"), ("effort", "low")], tuning
         prompt_id = msg["id"]
         sid = msg["params"]["sessionId"]
         print(json.dumps({"jsonrpc":"2.0","method":"session/update","params":{
@@ -242,8 +250,14 @@ for raw in sys.stdin:
             &dir,
             Some(dir.join("artifacts")),
             Some(format!("conv-{}", backend.as_str())),
-            Vec::new(),
+            if backend == CliBackend::OpenCode {
+                vec![("EXPECT_TUNING".into(), "1".into())]
+            } else {
+                Vec::new()
+            },
             CliRunOpts {
+                model: (backend == CliBackend::OpenCode).then(|| "company/carbon".into()),
+                effort: (backend == CliBackend::OpenCode).then(|| "low".into()),
                 bypass_approvals: false,
                 ..Default::default()
             },
@@ -430,6 +444,8 @@ async fn live_opencode_acp_smoke() {
         std::env::vars().collect(),
         CliRunOpts {
             bypass_approvals: true,
+            model: std::env::var("CETUS_TEST_OPENCODE_MODEL").ok(),
+            effort: std::env::var("CETUS_TEST_OPENCODE_EFFORT").ok(),
             ..Default::default()
         },
     ) {
@@ -542,4 +558,25 @@ fn antigravity_legacy_selection_preserves_explicit_effort_and_model_ids() {
         antigravity_selection(&state, Some("unknown-high"), None),
         (Some("unknown-high".into()), None)
     );
+}
+
+#[tokio::test]
+#[ignore]
+async fn live_opencode_catalog() {
+    let catalog = tokio::time::timeout(Duration::from_secs(30), probe_opencode_catalog())
+        .await
+        .unwrap()
+        .unwrap();
+    let models = catalog["cetusModels"].as_array().unwrap();
+    assert!(!models.is_empty());
+    if let Ok(model) = std::env::var("CETUS_TEST_OPENCODE_MODEL") {
+        let row = models
+            .iter()
+            .find(|row| row["id"] == model)
+            .expect("configured model missing");
+        if let Ok(effort) = std::env::var("CETUS_TEST_OPENCODE_EFFORT") {
+            assert!(row["efforts"].as_array().unwrap().contains(&json!(effort)));
+        }
+    }
+    eprintln!("OpenCode catalog: {} models", models.len());
 }
