@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronDown, Settings2, Orbit } from "lucide-react";
+import { Check, ChevronDown, Settings2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useChatStore } from "@/lib/chat-store";
 import type {
@@ -10,6 +10,7 @@ import type {
   RuntimePreset,
 } from "@/lib/types";
 import {
+  AntigravityIcon,
   CetusIcon,
   ClaudeCodeIcon,
   CodexIcon,
@@ -36,6 +37,8 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { antigravityTuning } from "@/lib/antigravity-tuning";
+export { antigravityTuning } from "@/lib/antigravity-tuning";
 import { cn } from "@/lib/utils";
 import { Kbd } from "@/components/ui/kbd";
 import { useTranslation } from "@/lib/i18n";
@@ -67,7 +70,7 @@ export const BACKENDS: { id: BackendId; label: string; icon: AppIcon }[] = [
   { id: "codex", label: "Codex", icon: CodexIcon },
   { id: "opencode", label: "OpenCode", icon: OpenCodeIcon },
   { id: "grok", label: "Grok Build", icon: GrokIcon },
-  { id: "antigravity", label: "Antigravity", icon: Orbit },
+  { id: "antigravity", label: "Antigravity", icon: AntigravityIcon },
   { id: "kimi", label: "Kimi CLI", icon: KimiIcon },
   { id: "dsh", label: "DeepSeek Harness", icon: DshIcon },
 ];
@@ -237,7 +240,7 @@ export function RuntimeShortcutHint({ entryId }: { entryId: string }) {
  *  be read — normally the live catalog from `api.getCliDefaults` replaces it. */
 export const CLI_MODELS: Record<
   TunableBackendId,
-  { id: string; label: string }[]
+  { id: string; label: string; efforts?: string[]; defaultEffort?: string | null }[]
 > = {
   "claude-code": [
     { id: "fable", label: "Fable" },
@@ -369,6 +372,15 @@ export function cliModelCatalog(
   return backend === "dsh" ? CLI_MODELS.dsh : defaults?.models ?? CLI_MODELS[backend];
 }
 
+/** Antigravity reports supported thinking levels per model. */
+export function cliEffortCatalog(backend: TunableBackendId, model: string, defaults: CliDefaults | null) {
+  if (backend !== "antigravity") return CLI_EFFORTS[backend];
+  const row = defaults?.models?.find((m) => m.id === model);
+  return (row?.efforts ?? []).map((id) => ({
+    id, label: id === "xhigh" ? "XHigh" : id.charAt(0).toUpperCase() + id.slice(1),
+  }));
+}
+
 /** The catalog row a persisted override selects. Exact id first, then the
  *  family match (a stale pinned Claude id vs. the live catalog), and when
  *  nothing is persisted ("" = no flag) the row the CLI itself reports as its
@@ -476,6 +488,7 @@ export function CliTuningMenu({
   effort,
   onModelChange,
   onEffortChange,
+  onTuningChange,
   onMigrate,
   disabled,
   className,
@@ -487,6 +500,7 @@ export function CliTuningMenu({
   effort: string;
   onModelChange: (model: string) => void;
   onEffortChange: (effort: string) => void;
+  onTuningChange?: (model: string, effort: string) => void;
   /** Receives concrete ids to persist in place of what's stored when the
    *  stored tuning can't be shown as-is: a legacy "" (the retired "Default"
    *  row) becomes the model/effort the CLI reports as its default, and a
@@ -506,9 +520,10 @@ export function CliTuningMenu({
   // load, an unresolved selection renders its raw id.
   const defaults = useCliDefaults(backend);
   const models = cliModelCatalog(backend, defaults);
-  const efforts = CLI_EFFORTS[backend];
-  const curModel = backend === "dsh" ? CLI_MODELS.dsh[0] : resolveCliModel(model, models, defaults);
-  const curEffort = resolveCliEffort(effort, efforts, defaults);
+  const tuning = backend === "antigravity" ? antigravityTuning(model, effort, defaults) : { model, effort };
+  const efforts = cliEffortCatalog(backend, tuning.model || defaults?.model || "", defaults);
+  const curModel = backend === "dsh" ? CLI_MODELS.dsh[0] : resolveCliModel(tuning.model, models, defaults);
+  const curEffort = resolveCliEffort(tuning.effort, efforts, defaults);
   // Two stored shapes can't be shown as-is and get rewritten to what's
   // checked, so the menu and the running session agree:
   //
@@ -527,6 +542,11 @@ export function CliTuningMenu({
   //    they mean. Only the live catalog is trusted for this one.
   useEffect(() => {
     if (!onMigrate || !defaults) return;
+    if (backend === "antigravity") {
+      const next = antigravityTuning(model, effort, defaults);
+      if (next.model !== model || next.effort !== effort) onMigrate(next.model, next.effort);
+      return;
+    }
     let nextModel = model;
     if (backend === "dsh") {
       nextModel = "deepseek-flash";
@@ -574,7 +594,7 @@ export function CliTuningMenu({
           <DropdownMenuItem
             key={e.id}
             className="text-xs"
-            onClick={() => onEffortChange(e.id)}
+            onClick={() => backend === "antigravity" && onTuningChange ? onTuningChange(tuning.model, e.id) : onEffortChange(e.id)}
           >
             <span className="flex-1">{e.label}</span>
             {e.id === curEffort?.id && <Check className="size-3.5" />}
@@ -593,7 +613,11 @@ export function CliTuningMenu({
               <DropdownMenuItem
                 key={m.id}
                 className="text-xs"
-                onClick={() => onModelChange(m.id)}
+                onClick={() => {
+                  if (backend === "antigravity" && onTuningChange) {
+                    onTuningChange(m.id, antigravityTuning(m.id, tuning.effort, defaults).effort);
+                  } else onModelChange(m.id);
+                }}
               >
                 <span className="flex-1">{m.label}</span>
                 {m.id === curModel?.id && <Check className="size-3.5" />}
@@ -967,6 +991,7 @@ export function BackendPicker({
             backend={shown}
             model={cliModel}
             effort={cliEffort}
+            onTuningChange={selectTuning}
             onModelChange={selectModel}
             onEffortChange={selectEffort}
             onMigrate={matchedPreset ? undefined : migrateTuning}
@@ -979,6 +1004,7 @@ export function BackendPicker({
             backend={shown}
             model={pendingModel ?? ""}
             effort={pendingEffort ?? ""}
+            onTuningChange={onPendingTuningChange}
             onModelChange={(m) => onPendingTuningChange(m, pendingEffort ?? "")}
             onEffortChange={(e) => onPendingTuningChange(pendingModel ?? "", e)}
             onMigrate={matchedPreset ? undefined : onPendingTuningChange}

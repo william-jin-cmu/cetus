@@ -1152,6 +1152,22 @@ async fn phone_tuning(state: &AppState, backend: &str) -> Value {
             "effort": default.reasoning,
         });
     }
+    if backend == "antigravity" {
+        let defaults = crate::cli_backend::get_cli_defaults(backend.into())
+            .await
+            .unwrap_or_default();
+        let mut levels = Vec::new();
+        for model in defaults.models.iter().flatten() {
+            for level in model.efforts.iter().flatten() {
+                if !levels.contains(level) {
+                    levels.push(level.clone());
+                }
+            }
+        }
+        return json!({ "models": defaults.models.unwrap_or_default(),
+            "model": defaults.model, "effort": defaults.effort,
+            "efforts": levels.iter().map(|id| json!({ "id": id, "label": id })).collect::<Vec<_>>() });
+    }
     type Options = &'static [(&'static str, &'static str)];
     let (fallback, efforts): (Options, Options) = match backend {
         "claude-code" => (

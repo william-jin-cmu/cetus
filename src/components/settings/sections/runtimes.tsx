@@ -25,7 +25,8 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import {
   BACKENDS,
-  CLI_EFFORTS,
+  cliEffortCatalog,
+  antigravityTuning,
   backendSupportsTuning,
   cliModelCatalog,
   resolveCliEffort,
@@ -443,9 +444,11 @@ function AddPresetForm({ onAdd }: { onAdd: (preset: RuntimePreset) => void }) {
   // a preset pins an explicit id, so that resolution is what gets saved.
   const defaults = useCliDefaults(backend);
   const models = cliModelCatalog(backend, defaults);
-  const efforts = CLI_EFFORTS[backend];
   const curModel = resolveCliModel(model, models, defaults) ?? models[0];
-  const curEffort = resolveCliEffort(effort, efforts, defaults);
+  const efforts = cliEffortCatalog(backend, curModel?.id ?? "", defaults);
+  const resolvedEffort = backend === "antigravity"
+    ? antigravityTuning(curModel?.id ?? "", effort, defaults).effort : effort;
+  const curEffort = resolveCliEffort(resolvedEffort, efforts, defaults);
   const tunableBackends = BACKENDS.filter((runtime) =>
     backendSupportsTuning(runtime.id),
   );
@@ -478,7 +481,7 @@ function AddPresetForm({ onAdd }: { onAdd: (preset: RuntimePreset) => void }) {
           ))}
         </SelectContent>
       </Select>
-      <Select value={curModel.id} onValueChange={setModel}>
+      <Select value={curModel?.id ?? ""} onValueChange={setModel}>
         <SelectTrigger
           size="sm"
           className="w-44 text-xs"
@@ -517,11 +520,12 @@ function AddPresetForm({ onAdd }: { onAdd: (preset: RuntimePreset) => void }) {
         size="sm"
         variant="outline"
         data-testid="runtime-preset-add"
+        disabled={!curModel}
         onClick={() =>
           onAdd({
             id: `preset-${crypto.randomUUID()}`,
             backend,
-            model: curModel.id,
+            model: curModel?.id ?? "",
             effort: curEffort?.id ?? "",
           })
         }
