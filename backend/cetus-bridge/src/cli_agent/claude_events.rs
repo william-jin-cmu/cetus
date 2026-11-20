@@ -576,7 +576,60 @@ impl EventTranslator {
                             .to_string(),
                     );
                 }
-                self.claude_context_event().into_iter().collect()
+                let ledger = {
+                    let usage = v.get("usage");
+                    let u = |k: &str| {
+                        usage
+                            .and_then(|obj| obj.get(k))
+                            .and_then(Value::as_u64)
+                            .unwrap_or(0)
+                    };
+                    let input = u("input_tokens");
+                    let output = u("output_tokens");
+                    let cache_read = u("cache_read_input_tokens");
+                    let cache_write = u("cache_creation_input_tokens");
+                    let total_cost = v
+                        .get("total_cost_usd")
+                        .and_then(Value::as_f64)
+                        .filter(|c| c.is_finite() && *c >= 0.0);
+                    let cost_delta = match total_cost {
+                        Some(c) => {
+                            let d = (c - self.claude_prev_cost_usd).max(0.0);
+                            if c > self.claude_prev_cost_usd {
+                                self.claude_prev_cost_usd = c;
+                            }
+                            d
+                        }
+                        None => 0.0,
+                    };
+                    if input + output + cache_read + cache_write > 0 || cost_delta > 0.0 {
+                        Some(json!({
+                            "scope": "claude-code",
+                            "model": self.claude_model.clone().unwrap_or_default(),
+                            "inputTokens": input,
+                            "outputTokens": output,
+                            "cacheReadTokens": cache_read,
+                            "cacheWriteTokens": cache_write,
+                            "costUsd": cost_delta,
+                        }))
+                    } else {
+                        None
+                    }
+                };
+                match (self.claude_context_event(), ledger) {
+                    (Some(mut ev), Some(l)) => {
+                        ev["ledger"] = l;
+                        vec![ev]
+                    }
+                    (Some(ev), None) => vec![ev],
+                    (None, Some(l)) => vec![json!({
+                        "type": "cli_context_usage",
+                        "usedTokens": self.claude_context_used,
+                        "contextWindow": 0,
+                        "ledger": l,
+                    })],
+                    (None, None) => Vec::new(),
+                }
             }
             _ => Vec::new(),
         }

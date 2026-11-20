@@ -14,6 +14,7 @@ mod screenshots;
 mod search;
 #[cfg(test)]
 mod tests;
+pub mod usage;
 
 use crate::automation::{Automation, AutomationSchedule};
 use crate::model::{ModelChoice, ModelRef, ReasoningLevel};
@@ -394,6 +395,22 @@ impl Store {
                 indexed_updated_at INTEGER NOT NULL,
                 indexed_at INTEGER NOT NULL
             );
+
+            -- Compact daily token/cost rollup per runtime or custom provider.
+            -- Additive so existing DBs gain it seamlessly without a reset.
+            CREATE TABLE IF NOT EXISTS usage_daily (
+                day TEXT NOT NULL,
+                scope TEXT NOT NULL,
+                model TEXT NOT NULL DEFAULT '',
+                input_tokens INTEGER NOT NULL DEFAULT 0,
+                output_tokens INTEGER NOT NULL DEFAULT 0,
+                cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+                cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+                cost_usd REAL NOT NULL DEFAULT 0.0,
+                updated_at INTEGER NOT NULL,
+                PRIMARY KEY (day, scope, model)
+            );
+            CREATE INDEX IF NOT EXISTS idx_usage_daily_scope_day ON usage_daily (scope, day DESC);
             "#,
         )?;
         // Additive column for automation-minted conversations. A DB created

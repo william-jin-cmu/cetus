@@ -361,12 +361,36 @@ pub(super) fn codex_context_event(params: &Value, transcript_bytes: usize) -> Op
         .get("modelContextWindow")
         .or_else(|| usage.get("model_context_window"))
         .and_then(Value::as_u64)?;
-    Some(json!({
+    let mut ev = json!({
         "type": "cli_context_usage",
         "usedTokens": used_tokens,
         "contextWindow": context_window,
         "transcriptBytes": transcript_bytes,
-    }))
+    });
+    if let Some(last) = usage.get("last") {
+        let u = |camel: &str, snake: &str| {
+            last.get(camel)
+                .or_else(|| last.get(snake))
+                .and_then(Value::as_u64)
+                .unwrap_or(0)
+        };
+        let raw_input = u("inputTokens", "input_tokens");
+        let cached = u("cachedInputTokens", "cached_input_tokens");
+        let output = u("outputTokens", "output_tokens");
+        let input = raw_input.saturating_sub(cached);
+        if input + cached + output > 0 {
+            ev["ledger"] = json!({
+                "scope": "codex",
+                "model": "",
+                "inputTokens": input,
+                "outputTokens": output,
+                "cacheReadTokens": cached,
+                "cacheWriteTokens": 0,
+                "costUsd": 0.0,
+            });
+        }
+    }
+    Some(ev)
 }
 
 /// Adapt app-server's account quota snapshot to the small cross-runtime shape

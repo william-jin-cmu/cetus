@@ -197,6 +197,10 @@ export function MessageList({
     const byKey = convId ? useChatStore.getState().chats[convId]?.byKey : undefined;
     return weaveSessions(groups, timelineSessions, (k) => byKey?.[k]?.createdAt);
   }, [groups, timelineSessions, convId]);
+  const latestPromptKey = keys[roles.lastIndexOf("user")];
+  const turnStartedAt = useChatStore((s) =>
+    convId && latestPromptKey ? s.chats[convId]?.byKey[latestPromptKey]?.createdAt : undefined,
+  );
   const awaiting = useAwaitingAssistant(convId);
   const hasError = !!useChatError(convId);
   // Thinking and errors are measured rows so every bottom seek uses the same
@@ -710,7 +714,7 @@ export function MessageList({
                 opticalCenter ? "xl:-translate-x-10 2xl:-translate-x-12" : ""
               }`}
             >
-              <ThinkingPlaceholder />
+              <ThinkingPlaceholder startedAt={turnStartedAt} />
             </div>
           </div>
         );
@@ -762,6 +766,7 @@ export function MessageList({
             workspaceDir={workspaceDir}
             keys={g.keys}
             active={isStreaming && isLast}
+            turnStartedAt={isLast ? turnStartedAt : undefined}
             onFork={
               onForkMessage && messageIndex >= 0
                 ? () => onForkMessage(forkMessageKey, messageIndex)
@@ -803,7 +808,7 @@ export function MessageList({
       convId,
       isStreaming,
       onForkMessage,
-      awaiting,
+      turnStartedAt,
       hasError,
       onRetry,
       retrying,

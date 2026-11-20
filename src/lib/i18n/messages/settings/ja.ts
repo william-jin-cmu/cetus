@@ -30,6 +30,10 @@ export const ja = {
   "models.model.vision": "ビジョン",
   "models.model.visionHint":
     "画像入力に対応するモデルではビジョンをオンにしてください。添付画像が文字起こしされずに直接モデルへ送られます。",
+  "models.model.pricingLabel": "単価（$/1M tok、任意）",
+  "models.model.inputPrice": "入力",
+  "models.model.outputPrice": "出力",
+  "models.model.cacheReadPrice": "キャッシュ読取",
   "models.model.add": "モデルを追加",
   "page.title": "設定",
 

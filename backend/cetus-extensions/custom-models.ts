@@ -32,6 +32,9 @@ interface ConfigModel {
 	thinkingFormat?: string;
 	contextWindow?: number;
 	maxTokens?: number;
+	inputPrice?: number | null;
+	outputPrice?: number | null;
+	cacheReadPrice?: number | null;
 }
 
 /** pi's full thinking-level axis (EXTENDED_THINKING_LEVELS order). */
@@ -109,7 +112,12 @@ export default function (pi: ExtensionAPI) {
 						input: m.vision ? ["text", "image"] : ["text"],
 						contextWindow: m.contextWindow || 128_000,
 						maxTokens: m.maxTokens || 8_192,
-						cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+						cost: {
+							input: m.inputPrice || 0,
+							output: m.outputPrice || 0,
+							cacheRead: m.cacheReadPrice ?? m.inputPrice ?? 0,
+							cacheWrite: 0,
+						},
 					})),
 			});
 		} catch (e) {

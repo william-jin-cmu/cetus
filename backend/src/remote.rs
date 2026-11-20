@@ -1582,7 +1582,9 @@ pub(crate) async fn rpc(web: &WebState, method: &str, params: Value) -> Result<V
         }
         "usage.get" => {
             let force = params.get("force").and_then(Value::as_bool);
-            Ok(json!(crate::usage::provider_usage(force).await?))
+            Ok(json!(
+                crate::usage::provider_usage(app.state(), force).await?
+            ))
         }
         _ => Err(format!("unknown method {method}")),
     }

@@ -75,6 +75,29 @@ pub struct CustomModel {
     pub context_window: u32,
     /// Max output tokens; 0 = extension default.
     pub max_tokens: u32,
+    /// Optional unit prices in USD per 1M tokens for metered cost estimates.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_price: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_price: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_read_price: Option<f64>,
+}
+
+impl CustomModel {
+    pub fn estimate_cost_usd(&self, input: u64, output: u64, cache_read: u64) -> f64 {
+        let inp = self.input_price.unwrap_or(0.0).max(0.0);
+        let out = self.output_price.unwrap_or(0.0).max(0.0);
+        let cached = self
+            .cache_read_price
+            .or(self.input_price)
+            .unwrap_or(0.0)
+            .max(0.0);
+        if inp == 0.0 && out == 0.0 && cached == 0.0 {
+            return 0.0;
+        }
+        ((input as f64) * inp + (output as f64) * out + (cache_read as f64) * cached) / 1_000_000.0
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -152,6 +175,9 @@ pub fn export_config(app_data_dir: &Path, store: &Store) {
                     "thinkingFormat": m.thinking_format,
                     "contextWindow": m.context_window,
                     "maxTokens": m.max_tokens,
+                    "inputPrice": m.input_price,
+                    "outputPrice": m.output_price,
+                    "cacheReadPrice": m.cache_read_price,
                 })).collect::<Vec<_>>(),
             })
         })
@@ -333,6 +359,10 @@ pub async fn upsert_custom_provider(
                 m.thinking_levels.insert(lvl.to_string(), String::new());
             }
         }
+        let clean_price = |p: Option<f64>| p.filter(|v| v.is_finite() && *v > 0.0);
+        m.input_price = clean_price(m.input_price);
+        m.output_price = clean_price(m.output_price);
+        m.cache_read_price = clean_price(m.cache_read_price);
         !m.id.is_empty()
     });
     if p.name.is_empty() {

@@ -42,6 +42,10 @@ export const zh = {
   "models.model.vision": "视觉",
   "models.model.visionHint":
     "支持图片输入的模型请打开“视觉”——附件将直接发给模型。",
+  "models.model.pricingLabel": "单价（$/1M tok，可选）",
+  "models.model.inputPrice": "输入",
+  "models.model.outputPrice": "输出",
+  "models.model.cacheReadPrice": "缓存读取",
   "models.model.add": "添加模型",
   "page.title": "设置",
 

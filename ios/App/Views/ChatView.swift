@@ -598,19 +598,43 @@ struct MarkdownText: View {
 private struct TableBox: View {
     let rows: [[String]]
 
+    private static let maxColumn: CGFloat = 240
+
+    private static func cellText(_ cell: String) -> AttributedString {
+        (try? AttributedString(markdown: cell)) ?? AttributedString(cell)
+    }
+
+    /// Each column gets an explicit width (its widest single-line cell,
+    /// capped). Grid inside a horizontal ScrollView sizes rows from the
+    /// cells' ideal single-line height, so a `maxWidth` cap alone lets long
+    /// cells wrap past their row and draw over the next one.
+    private static func columnWidths(_ rows: [[String]], count: Int) -> [CGFloat] {
+        (0..<count).map { c in
+            var widest: CGFloat = 0
+            for (r, row) in rows.enumerated() where c < row.count {
+                let plain = String(cellText(row[c]).characters)
+                let font = UIFont.systemFont(ofSize: 14, weight: r == 0 ? .semibold : .regular)
+                let w = (plain as NSString).size(withAttributes: [.font: font]).width
+                widest = max(widest, ceil(w) + 2)
+            }
+            return min(max(widest, 12), maxColumn)
+        }
+    }
+
     var body: some View {
         let width = rows.map(\.count).max() ?? 0
+        let columns = Self.columnWidths(rows, count: width)
         ScrollView(.horizontal, showsIndicators: false) {
             Grid(alignment: .leading, horizontalSpacing: 0, verticalSpacing: 0) {
                 ForEach(Array(rows.enumerated()), id: \.offset) { r, row in
-                    GridRow {
+                    GridRow(alignment: .top) {
                         ForEach(0..<width, id: \.self) { c in
                             let cell = c < row.count ? row[c] : ""
-                            Text((try? AttributedString(markdown: cell)) ?? AttributedString(cell))
+                            Text(Self.cellText(cell))
                                 .font(.system(size: 14, weight: r == 0 ? .semibold : .regular))
                                 .foregroundStyle(Theme.text)
-                                .frame(maxWidth: 240, alignment: .leading)
                                 .fixedSize(horizontal: false, vertical: true)
+                                .frame(width: columns[c], alignment: .leading)
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 7)
                         }
