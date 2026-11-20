@@ -416,6 +416,7 @@ pub struct EventTranslator {
     claude_context_used: u64,
     claude_context_window: Option<u64>,
     claude_model: Option<String>,
+    claude_prev_cost_usd: f64,
     /// Approximate raw vendor transcript bytes observed by this session.
     /// This is intentionally independent from token accounting: giant tool
     /// results and inline media can make the persisted stream unhealthy well
@@ -657,6 +658,7 @@ impl EventTranslator {
             claude_context_used: 0,
             claude_context_window: None,
             claude_model: None,
+            claude_prev_cost_usd: 0.0,
             protocol_bytes: 0,
         }
     }
@@ -1262,6 +1264,7 @@ impl EventTranslator {
                 events
             }
             "available_commands_update" => vec![acp_commands_event(update)],
+            "usage_update" => acp_usage_event(self.backend, update).into_iter().collect(),
             _ => Vec::new(),
         };
         out = self.with_open(out);
@@ -1303,6 +1306,28 @@ impl EventTranslator {
 /// Wrap an `assistantMessageEvent` payload in the `message_update` PiEvent.
 fn am(event: Value) -> Value {
     json!({ "type": "message_update", "assistantMessageEvent": event })
+}
+
+fn acp_usage_event(backend: CliBackend, update: &Value) -> Option<Value> {
+    let used = update.get("used").and_then(Value::as_u64).unwrap_or(0);
+    let size = update.get("size").and_then(Value::as_u64).unwrap_or(0);
+    let cost_usd = update
+        .pointer("/cost/amount")
+        .and_then(Value::as_f64)
+        .filter(|v| v.is_finite() && *v >= 0.0);
+    if used == 0 && size == 0 && cost_usd.is_none() {
+        return None;
+    }
+    let mut ev = json!({
+        "type": "cli_context_usage",
+        "backend": backend.as_str(),
+        "usedTokens": used,
+        "contextWindow": size,
+    });
+    if let Some(cost) = cost_usd {
+        ev["sessionCostUsd"] = json!(cost);
+    }
+    Some(ev)
 }
 
 /// The slash-command catalog from an `available_commands_update`. Free-standing

@@ -69,6 +69,10 @@ export interface CustomModel {
   contextWindow: number;
   /** Max output tokens; 0 = default. */
   maxTokens: number;
+  /** Optional unit prices in USD per 1M tokens for metered cost estimates. */
+  inputPrice?: number | null;
+  outputPrice?: number | null;
+  cacheReadPrice?: number | null;
 }
 
 /** A user-configured OpenAI-compatible provider. Mirrors the Rust

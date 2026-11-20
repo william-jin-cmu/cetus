@@ -44,6 +44,7 @@ base64 = "0.22"
 # gzip payloads, futures-util for the split read/write sink+stream.
 tokio-tungstenite = { version = "0.24", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
 flate2 = "1"
+zstd = "0.13"
 futures-util = "0.3"
 axum = { version = "0.7", features = ["ws"] }
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }

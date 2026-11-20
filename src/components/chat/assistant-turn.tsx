@@ -19,6 +19,7 @@ interface Props {
   onFork?: () => void;
   /** This is the trailing assistant group of an agent turn that is still open. */
   active?: boolean;
+  turnStartedAt?: number;
 }
 
 function answerText(messages: RenderedMessage[]): string {
@@ -35,7 +36,7 @@ function answerText(messages: RenderedMessage[]): string {
  *  under a single ASSISTANT header. Tool calls + thinking collapse into
  *  one-line activity summaries; the natural-language answer stays expanded,
  *  and a running turn ends with the working indicator. */
-export function AssistantGroup({ convId, workspaceDir, keys, onFork, active = false }: Props) {
+export function AssistantGroup({ convId, workspaceDir, keys, onFork, active = false, turnStartedAt }: Props) {
   const { t } = useTranslation("chat");
   const messages = useMessagesByKeys(convId, keys);
   // Recompute segments only when the merged messages actually change (the array
@@ -66,7 +67,7 @@ export function AssistantGroup({ convId, workspaceDir, keys, onFork, active = fa
           <div className="text-2xs font-medium uppercase tracking-wider text-muted-foreground">
             {t("pane.assistant")}
           </div>
-          <WorkingIndicator startedAt={messages[0].createdAt} />
+          <WorkingIndicator startedAt={turnStartedAt ?? messages[0].createdAt} />
         </div>
       </div>
     );
@@ -108,7 +109,7 @@ export function AssistantGroup({ convId, workspaceDir, keys, onFork, active = fa
                 </div>
               ),
             )}
-            {active && <WorkingIndicator startedAt={messages[0].createdAt} />}
+            {active && <WorkingIndicator startedAt={turnStartedAt ?? messages[0].createdAt} />}
           </div>
           <MessageActions
             getText={getAnswerText}

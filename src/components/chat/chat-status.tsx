@@ -168,16 +168,16 @@ export function WorkingIndicator({ startedAt }: { startedAt: number }) {
  *  conversation doesn't feel like it's hanging. For CLI backends
  *  (claude-code / codex) this covers the whole process boot — message_start is
  *  deferred until real content streams. */
-export function ThinkingPlaceholder() {
+export function ThinkingPlaceholder({ startedAt }: { startedAt?: number }) {
   const { t } = useTranslation("chat");
-  const [startedAt] = useState(() => Date.now());
+  const [mountedAt] = useState(() => Date.now());
   return (
     <div className="flex w-full justify-start py-3">
       <div className="flex max-w-[88%] flex-col gap-2 items-start">
         <div className="text-2xs font-medium uppercase tracking-wider text-muted-foreground">
           {t("pane.assistant")}
         </div>
-        <WorkingIndicator startedAt={startedAt} />
+        <WorkingIndicator startedAt={startedAt ?? mountedAt} />
       </div>
     </div>
   );

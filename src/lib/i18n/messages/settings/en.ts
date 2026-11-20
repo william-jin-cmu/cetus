@@ -44,6 +44,10 @@ export const en = {
   "models.model.vision": "Vision",
   "models.model.visionHint":
     "Turn on Vision for models that accept images — attachments are sent directly to the model.",
+  "models.model.pricingLabel": "Pricing ($/1M tok, optional)",
+  "models.model.inputPrice": "Input",
+  "models.model.outputPrice": "Output",
+  "models.model.cacheReadPrice": "Cached",
   "models.model.add": "Add model",
   // --- Chrome -----------------------------------------------------------
   "page.title": "Settings",

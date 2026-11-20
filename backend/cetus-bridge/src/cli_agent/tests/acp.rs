@@ -580,3 +580,21 @@ async fn live_opencode_catalog() {
     }
     eprintln!("OpenCode catalog: {} models", models.len());
 }
+
+#[test]
+fn acp_usage_update_emits_context_and_session_cost_without_opening_bubble() {
+    let mut tr = EventTranslator::new(CliBackend::OpenCode);
+    let ev = tr.on_acp_update(&json!({
+        "sessionUpdate": "usage_update",
+        "used": 48_200,
+        "size": 200_000,
+        "cost": { "amount": 0.42, "currency": "USD" }
+    }));
+    assert!(!tr.opened);
+    assert_eq!(ev.len(), 1);
+    assert_eq!(ev[0]["type"], json!("cli_context_usage"));
+    assert_eq!(ev[0]["backend"], json!("opencode"));
+    assert_eq!(ev[0]["usedTokens"], json!(48_200));
+    assert_eq!(ev[0]["contextWindow"], json!(200_000));
+    assert_eq!(ev[0]["sessionCostUsd"], json!(0.42));
+}

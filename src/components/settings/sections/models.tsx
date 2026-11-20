@@ -48,7 +48,17 @@ function emptyModelDraft(): CustomModel {
     thinkingFormat: "",
     contextWindow: 0,
     maxTokens: 0,
+    inputPrice: null,
+    outputPrice: null,
+    cacheReadPrice: null,
   };
+}
+
+function parseOptionalPrice(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const n = Number(trimmed);
+  return Number.isFinite(n) && n > 0 ? n : null;
 }
 
 /** Effort-field shapes the pi runtime can emit (compat.thinkingFormat).
@@ -370,6 +380,50 @@ export function ModelsSection({ open }: { open: boolean }) {
                         </Select>
                       </div>
                     )}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                    <span className="text-xs text-muted-foreground">
+                      {t("models.model.pricingLabel")}
+                    </span>
+                    <Input
+                      type="number"
+                      step="any"
+                      min="0"
+                      value={m.inputPrice ?? ""}
+                      placeholder={t("models.model.inputPrice")}
+                      className="h-7 w-24 font-mono text-xs"
+                      onChange={(e) =>
+                        updateDraftModel(i, {
+                          inputPrice: parseOptionalPrice(e.target.value),
+                        })
+                      }
+                    />
+                    <Input
+                      type="number"
+                      step="any"
+                      min="0"
+                      value={m.outputPrice ?? ""}
+                      placeholder={t("models.model.outputPrice")}
+                      className="h-7 w-24 font-mono text-xs"
+                      onChange={(e) =>
+                        updateDraftModel(i, {
+                          outputPrice: parseOptionalPrice(e.target.value),
+                        })
+                      }
+                    />
+                    <Input
+                      type="number"
+                      step="any"
+                      min="0"
+                      value={m.cacheReadPrice ?? ""}
+                      placeholder={t("models.model.cacheReadPrice")}
+                      className="h-7 w-24 font-mono text-xs"
+                      onChange={(e) =>
+                        updateDraftModel(i, {
+                          cacheReadPrice: parseOptionalPrice(e.target.value),
+                        })
+                      }
+                    />
                   </div>
                   {m.reasoning && (
                     <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 sm:grid-cols-3">

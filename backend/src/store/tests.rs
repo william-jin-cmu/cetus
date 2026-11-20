@@ -390,3 +390,48 @@ fn rebase_workspace_dirs_moves_folder_and_subfolders_only() {
     assert_eq!(store.get("a").unwrap().unwrap().updated_at, 2);
     let _ = std::fs::remove_file(path);
 }
+
+#[test]
+fn usage_daily_accumulates_and_rolls_up_today_and_week() {
+    use crate::store::usage::UsageDelta;
+    let (store, path) = temp_store();
+    store
+        .record_usage_delta_on_day(
+            "2026-11-12",
+            UsageDelta {
+                scope: "custom:custom-openrouter",
+                model: "gpt-4.1",
+                input_tokens: 10_000,
+                output_tokens: 2_000,
+                cache_read_tokens: 30_000,
+                cache_write_tokens: 0,
+                cost_usd: 0.12,
+            },
+        )
+        .unwrap();
+    store
+        .record_usage_delta_on_day(
+            "2026-11-16",
+            UsageDelta {
+                scope: "custom:custom-openrouter",
+                model: "gpt-4.1",
+                input_tokens: 5_000,
+                output_tokens: 1_000,
+                cache_read_tokens: 15_000,
+                cache_write_tokens: 0,
+                cost_usd: 0.06,
+            },
+        )
+        .unwrap();
+    let rollup = store
+        .query_usage_rollup_window("custom:custom-openrouter", "2026-11-16", "2026-11-10")
+        .unwrap();
+    assert_eq!(rollup.today_tokens, 21_000);
+    assert_eq!(rollup.week_tokens, 63_000);
+    assert!((rollup.today_cost_usd - 0.06).abs() < 1e-6);
+    assert!((rollup.week_cost_usd - 0.18).abs() < 1e-6);
+    assert_eq!(rollup.cache_hit_pct(), Some(75));
+    assert_eq!(rollup.top_models.len(), 1);
+    assert_eq!(rollup.top_models[0].model, "gpt-4.1");
+    let _ = std::fs::remove_file(path);
+}
