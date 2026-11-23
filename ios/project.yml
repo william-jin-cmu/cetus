@@ -15,8 +15,8 @@ settings:
     DEVELOPMENT_TEAM: 65N4VF5643
     CODE_SIGN_STYLE: Automatic
     SWIFT_VERSION: "5.10"
-    MARKETING_VERSION: "0.1.7"
-    CURRENT_PROJECT_VERSION: "9"
+    MARKETING_VERSION: "0.1.8"
+    CURRENT_PROJECT_VERSION: "10"
 targets:
   Cetus:
     type: application
@@ -30,7 +30,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: dev.cetus.mobile
         PRODUCT_NAME: Cetus
         TARGETED_DEVICE_FAMILY: "1"
-        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_APPICON_NAME: CetusGlass
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: Cetus
@@ -46,3 +46,20 @@ targets:
         CFBundleURLTypes:
           - CFBundleURLName: dev.cetus.mobile.pair
             CFBundleURLSchemes: [cetus]
+  CetusUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [UITests]
+    dependencies:
+      - target: Cetus
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.cetus.mobile.uitests
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  Cetus:
+    build:
+      targets:
+        Cetus: all
+    test:
+      targets: [CetusUITests]

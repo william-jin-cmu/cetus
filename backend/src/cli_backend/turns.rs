@@ -233,8 +233,9 @@ pub fn dispatch_turn(
     env.push((
         "PATH".to_string(),
         format!(
-            "{}:{}",
+            "{}{}{}",
             crate::control::cli_bin_dir(&state.app_data_dir).display(),
+            if cfg!(windows) { ";" } else { ":" },
             std::env::var("PATH").unwrap_or_default()
         ),
     ));
@@ -609,8 +610,9 @@ pub async fn compact_codex_conversation(
             env.push((
                 "PATH".to_string(),
                 format!(
-                    "{}:{}",
+                    "{}{}{}",
                     crate::control::cli_bin_dir(&state.app_data_dir).display(),
+                    if cfg!(windows) { ";" } else { ":" },
                     std::env::var("PATH").unwrap_or_default()
                 ),
             ));

@@ -196,7 +196,7 @@ export const zh = {
   "onboarding.runtime.cetus.description":
     "基于 pi、由 DeepSeek 驱动，适合低成本的日常 Agent 工作。",
   "onboarding.runtime.cli.description":
-    "复用这台 Mac 上已安装并登录的 {name} CLI。",
+    "复用这台电脑上已安装并登录的 {name} CLI。",
   "onboarding.runtime.ready": "已就绪",
   "onboarding.runtime.notInstalled": "未安装",
   "onboarding.runtime.keyNeeded": "需要密钥",

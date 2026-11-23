@@ -459,13 +459,35 @@ fn socket_path() -> Result<std::path::PathBuf, String> {
             return Ok(p.into());
         }
     }
-    let home = std::env::var("HOME").map_err(|_| "HOME not set".to_string())?;
-    Ok(format!("{home}/Library/Application Support/dev.cetus.app/cetus.sock").into())
+    #[cfg(windows)]
+    return std::env::var_os("APPDATA")
+        .map(|p| std::path::PathBuf::from(p).join("dev.cetus.app/cetus.sock"))
+        .ok_or_else(|| "APPDATA missing".to_owned());
+    #[cfg(not(windows))]
+    {
+        let home = std::env::var("HOME").map_err(|_| "HOME not set".to_string())?;
+        Ok(format!("{home}/Library/Application Support/dev.cetus.app/cetus.sock").into())
+    }
 }
 
 fn request(req: &Value) -> Result<Value, String> {
     let path = socket_path()?;
-    let mut stream = std::os::unix::net::UnixStream::connect(&path).map_err(|e| {
+    #[cfg(unix)]
+    let connection = std::os::unix::net::UnixStream::connect(&path);
+    #[cfg(windows)]
+    let connection = std::fs::read_to_string(&path).and_then(|name| {
+        use std::os::windows::fs::OpenOptionsExt;
+        if !name.starts_with(r"\\.\pipe\cetus-") {
+            return Err(std::io::Error::other("invalid Cetus pipe name"));
+        }
+        // SECURITY_IDENTIFICATION prevents a pipe server impersonating the CLI.
+        std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .security_qos_flags(0x10000)
+            .open(name)
+    });
+    let mut stream = connection.map_err(|e| {
         format!(
             "cannot reach the Cetus app at {} ({e}) — is Cetus running?",
             path.display()

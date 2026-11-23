@@ -61,8 +61,12 @@ fn pty_size(cols: u16, rows: u16) -> PtySize {
 }
 
 fn local_shell(cwd: &str) -> CommandBuilder {
+    #[cfg(windows)]
+    let shell = "powershell.exe";
+    #[cfg(unix)]
     let shell = std::env::var_os("SHELL").unwrap_or_else(|| "/bin/sh".into());
     let mut command = CommandBuilder::new(shell);
+    #[cfg(unix)]
     command.arg("-l");
     command.cwd(cwd);
     command.env("TERM", "xterm-256color");
@@ -248,6 +252,9 @@ impl TerminalRuntime {
     /// would kill it.
     #[cfg_attr(debug_assertions, allow(dead_code))]
     pub fn has_foreground_job(&self) -> bool {
+        #[cfg(windows)]
+        return !self.sessions.lock().unwrap().is_empty();
+        #[cfg(unix)]
         self.sessions.lock().unwrap().values().any(|session| {
             match (session.master.process_group_leader(), session.shell_pid) {
                 (Some(leader), Some(shell)) => leader as u32 != shell,

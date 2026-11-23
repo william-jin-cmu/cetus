@@ -64,7 +64,12 @@ function adoptLoginShellEnv() {
   }
   process.env.CETUS_SHELL_ENV_ADOPTED = "1";
 }
-adoptLoginShellEnv();
+if (process.platform === "win32") {
+  process.env.HOME ??= os.homedir();
+  process.env.CETUS_SHELL_ENV_ADOPTED = "1";
+} else {
+  adoptLoginShellEnv();
+}
 
 const isDev = !app.isPackaged;
 // electron/dist/main.js in dev; Contents/Resources/app.asar/… when packaged.
@@ -78,7 +83,7 @@ declare const __CETUS_APP_ID__: string;
 // dir, control socket or running sessions.
 const IDENTIFIER =
   process.env.CETUS_IDENTIFIER ?? (isDev ? "run.cetus.electron" : __CETUS_APP_ID__);
-const DATA_DIR = path.join(os.homedir(), "Library", "Application Support", IDENTIFIER);
+const DATA_DIR = path.join(app.getPath("appData"), IDENTIFIER);
 const NATIVE_PATH = isDev
   ? path.join(ROOT, "electron", "native", "cetus.node")
   : path.join(process.resourcesPath, "native", "cetus.node");
@@ -91,9 +96,10 @@ if (isDev && process.env.CETUS_DEBUG_PORT) {
   app.commandLine.appendSwitch("remote-debugging-port", process.env.CETUS_DEBUG_PORT);
 }
 app.setPath("userData", path.join(DATA_DIR, "webview"));
+const cliName = process.platform === "win32" ? "cetus.exe" : "cetus";
 process.env.CETUS_CLI_BIN ??= isDev
-  ? path.join(ROOT, "backend", "cli", "target", "debug", "cetus")
-  : path.join(process.resourcesPath, "bin", "cetus");
+  ? path.join(ROOT, "backend", "cli", "target", "debug", cliName)
+  : path.join(process.resourcesPath, "bin", cliName);
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -558,6 +564,15 @@ function finalExit(code = 0, relaunch = false) {
 
 function handle(op: string, args: any): unknown {
   switch (op) {
+    case "trash_item":
+      return shell.trashItem(args.path).then(() => true);
+    case "open_local_path":
+      return shell.openPath(args.path).then((error) => !error);
+    case "open_external_url":
+      return shell.openExternal(args.url).then(() => true);
+    case "reveal_item":
+      shell.showItemInFolder(args.path);
+      return true;
     case "emit": {
       const { target, event, payload } = args as { target: string | null; event: string; payload: string };
       for (const [label, win] of windows) {
@@ -752,7 +767,7 @@ ipcMain.handle("cetus:invoke", (e, cmd: string, argsJson: string) => {
 // (preferences, drafts, sidebar state) to the main window's preload once.
 const STORAGE_MIGRATED = path.join(DATA_DIR, "webview", ".webkit-storage-migrated");
 let pendingStorage: StorageItems | null = null;
-if ((!isDev || process.env.CETUS_MIGRATE_WEBKIT) && !fs.existsSync(STORAGE_MIGRATED)) {
+if (process.platform === "darwin" && (!isDev || process.env.CETUS_MIGRATE_WEBKIT) && !fs.existsSync(STORAGE_MIGRATED)) {
   try {
     // CETUS_MIGRATE_WEBKIT=<identifier> exercises this from a dev build.
     pendingStorage = readWebKitStorage(process.env.CETUS_MIGRATE_WEBKIT || IDENTIFIER) ?? {};
@@ -875,7 +890,7 @@ function registerProtocols() {
     const candidates = [rel, `${rel}.html`, path.join(rel, "index.html")];
     for (const c of candidates) {
       const file = path.join(out, c);
-      if (file.startsWith(out) && fs.existsSync(file) && fs.statSync(file).isFile()) {
+      if (file.startsWith(out + path.sep) && fs.existsSync(file) && fs.statSync(file).isFile()) {
         return serveFile(file, req);
       }
     }

@@ -1,6 +1,6 @@
 {
   "name": "cetus",
-  "version": "0.5.13",
+  "version": "0.5.14",
   "description": "Turn Codex, Claude Code, or your favorite agent runtime into an always-on desktop assistant.",
   "private": true,
   "cetus": {
@@ -14,6 +14,7 @@
     "start": "next start",
     "lint": "tsc --noEmit && tsc --noEmit -p electron",
     "app": "node scripts/electron-dev.mjs",
+    "app:windows": "node scripts/package-electron.mjs --windows-x64",
     "app:signed": "scripts/build-local-signed.sh",
     "app:release": "scripts/build-release.sh",
     "test:chat-scroll": "playwright test --config playwright.chat.config.ts"

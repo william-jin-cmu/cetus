@@ -16,14 +16,15 @@
 //! CLIs get `CETUS_SOCK` in their env, the `cetus` shim dir prepended to their
 //! `PATH`, and a one-line system-prompt hint that both exist.
 //!
-//! SECURITY: filesystem socket only (no TCP), created `0600` so only the local
-//! user can connect — the same trust boundary as the sqlite file itself.
+//! Unix uses a 0600 filesystem socket. Windows uses an owner-only local
+//! named pipe discovered through a file in the user profile.
 
 use std::path::{Path, PathBuf};
 
 use host::{AppHandle, Manager};
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt, BufReader};
+#[cfg(unix)]
 use tokio::net::UnixListener;
 
 use crate::AppState;
@@ -52,6 +53,12 @@ pub fn socket_path(app_data_dir: &Path) -> PathBuf {
 
 /// Directory holding the `cetus` shim, prepended to child CLIs' `PATH`.
 pub fn cli_bin_dir(app_data_dir: &Path) -> PathBuf {
+    #[cfg(windows)]
+    if let Some(exe) = std::env::var_os("CETUS_CLI_BIN") {
+        if let Some(dir) = Path::new(&exe).parent() {
+            return dir.to_owned();
+        }
+    }
     app_data_dir.join("bin")
 }
 
@@ -59,6 +66,10 @@ pub fn cli_bin_dir(app_data_dir: &Path) -> PathBuf {
 /// app binary in CLI mode (`Cetus cli …` — see `main.rs`). A shim instead of a
 /// symlink because the CLI entry is an argv branch in the main binary, and
 /// rewriting it every launch keeps the exec path fresh across app updates.
+#[cfg(windows)]
+pub fn install_cli_shim(_: &Path) {}
+
+#[cfg(unix)]
 pub fn install_cli_shim(app_data_dir: &Path) {
     // The app process is Electron, so the CLI is its own binary; the host
     // passes its path. `current_exe` is the fallback for standalone runs.
@@ -91,6 +102,7 @@ pub fn install_cli_shim(app_data_dir: &Path) {
 }
 
 /// Bind the control socket and serve forever. Called once from app setup.
+#[cfg(unix)]
 pub fn start(app: AppHandle) {
     let path = socket_path(&app.state::<AppState>().app_data_dir);
     host::async_runtime::spawn(async move {
@@ -130,8 +142,8 @@ pub fn start(app: AppHandle) {
 }
 
 /// Per-connection loop: newline-delimited JSON request → one response per line.
-async fn handle_conn(app: AppHandle, stream: tokio::net::UnixStream) {
-    let (read_half, mut write_half) = stream.into_split();
+async fn handle_conn(app: AppHandle, stream: impl tokio::io::AsyncRead + tokio::io::AsyncWrite) {
+    let (read_half, mut write_half) = tokio::io::split(stream);
     let mut reader = BufReader::new(read_half);
     let mut line = String::new();
 
@@ -158,6 +170,73 @@ async fn handle_conn(app: AppHandle, stream: tokio::net::UnixStream) {
         if write_half.write_all(&bytes).await.is_err() || write_half.flush().await.is_err() {
             break;
         }
+    }
+}
+
+#[cfg(windows)]
+pub fn start(app: AppHandle) {
+    let endpoint = socket_path(&app.state::<AppState>().app_data_dir);
+    host::async_runtime::spawn(async move {
+        if let Err(e) = serve_windows(app, endpoint).await {
+            tracing::warn!("control: named pipe failed: {e}");
+        }
+    });
+}
+
+#[cfg(windows)]
+async fn serve_windows(app: AppHandle, endpoint: PathBuf) -> std::io::Result<()> {
+    use tokio::net::windows::named_pipe::ServerOptions;
+    use windows_sys::Win32::{
+        Foundation::LocalFree,
+        Security::{
+            Authorization::ConvertStringSecurityDescriptorToSecurityDescriptorW,
+            SECURITY_ATTRIBUTES,
+        },
+    };
+
+    let name = format!(r"\\.\pipe\cetus-{}", uuid::Uuid::new_v4());
+    let listen = |first: bool| {
+        // Grant the pipe's owner full access. Do not inherit the default
+        // named-pipe DACL, which can grant read access to other users.
+        let mut descriptor = std::ptr::null_mut();
+        let acl = windows_sys::core::w!("D:P(A;;GA;;;OW)");
+        unsafe {
+            if ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                acl,
+                1,
+                &mut descriptor,
+                std::ptr::null_mut(),
+            ) == 0
+            {
+                return Err(std::io::Error::last_os_error());
+            }
+            let mut attrs = SECURITY_ATTRIBUTES {
+                nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
+                lpSecurityDescriptor: descriptor,
+                bInheritHandle: 0,
+            };
+            let pipe = ServerOptions::new()
+                .first_pipe_instance(first)
+                .reject_remote_clients(true)
+                .create_with_security_attributes_raw(
+                    &name,
+                    (&mut attrs as *mut SECURITY_ATTRIBUTES).cast(),
+                );
+            LocalFree(descriptor);
+            pipe
+        }
+    };
+    let mut server = listen(true)?;
+    // Publish only after the first instance is bound. The per-launch name
+    // also keeps independent app identifiers and simultaneous users separate.
+    let staging = endpoint.with_extension("next");
+    std::fs::write(&staging, &name)?;
+    std::fs::rename(staging, endpoint)?;
+    loop {
+        server.connect().await?;
+        let next = listen(false)?;
+        host::async_runtime::spawn(handle_conn(app.clone(), server));
+        server = next;
     }
 }
 

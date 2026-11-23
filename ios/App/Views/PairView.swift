@@ -113,6 +113,7 @@ struct PairView: View {
     }
 
     private func run(_ offer: PairingOffer) async {
+        guard !busy else { return }
         busy = true
         error = nil
         defer { busy = false }

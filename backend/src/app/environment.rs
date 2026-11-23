@@ -30,7 +30,11 @@ pub(super) fn log_dir() -> Option<PathBuf> {
                 .join("logs")
         })
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(windows)]
+    {
+        std::env::var_os("APPDATA").map(|p| PathBuf::from(p).join(identifier).join("logs"))
+    }
+    #[cfg(all(not(windows), not(target_os = "macos")))]
     {
         let _ = identifier;
         dirs_home().map(|h| h.join(".cetus/logs"))

@@ -40,8 +40,8 @@ pub async fn export_diagnostics() -> Result<String, String> {
         std::env::var("SHELL").unwrap_or_else(|_| "(unset)".into())
     ));
     push("PATH =");
-    for dir in std::env::var("PATH").unwrap_or_default().split(':') {
-        push(&format!("  {dir}"));
+    for dir in std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()) {
+        push(&format!("  {}", dir.display()));
     }
 
     push("\n== Runtimes ==");
@@ -101,10 +101,10 @@ pub async fn export_diagnostics() -> Result<String, String> {
 
 /// First hit for `bin` on this process's PATH (the same PATH child runtimes
 /// inherit, post `adopt_login_shell_env`).
-fn resolve_on_path(bin: &str) -> Option<PathBuf> {
+pub(crate) fn resolve_on_path(bin: &str) -> Option<PathBuf> {
     let path = std::env::var_os("PATH")?;
     std::env::split_paths(&path).find_map(|dir| {
-        let candidate = dir.join(bin);
+        let candidate = dir.join(format!("{bin}{}", std::env::consts::EXE_SUFFIX));
         candidate.is_file().then_some(candidate)
     })
 }

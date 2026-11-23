@@ -26,15 +26,6 @@ struct ConversationListView: View {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     topActions
                     Divider().overlay(Theme.border).padding(.vertical, 8)
-                    if case .failed(let message) = store.state {
-                        StatusBanner(text: message, systemImage: "wifi.exclamationmark", action: "Retry") {
-                            store.reconnect()
-                        }
-                    } else if store.state == .unpaired {
-                        StatusBanner(text: RemoteError.unpaired.localizedDescription, systemImage: "lock", action: "Pair") {
-                            pairing = true
-                        }
-                    }
                     if store.showArchived {
                         archivedList
                     } else {
@@ -42,7 +33,7 @@ struct ConversationListView: View {
                         ForEach(store.groups) { group in
                             groupView(group)
                         }
-                        if store.groups.isEmpty && store.state == .connected {
+                        if store.groups.isEmpty && store.hasLoadedList {
                             Text("No chats yet")
                                 .foregroundStyle(Theme.muted)
                                 .frame(maxWidth: .infinity)
@@ -63,6 +54,7 @@ struct ConversationListView: View {
                 case .chat(let id): ChatView(conversationId: id)
                 case .newChat(let folder):
                     NewChatView(initialFolder: folder) { c in
+                        guard path.last == .newChat(folder: folder) else { return }
                         path.removeLast()
                         path.append(.chat(c.id))
                     }
@@ -96,7 +88,7 @@ struct ConversationListView: View {
 
     private var topActions: some View {
         VStack(alignment: .leading, spacing: 2) {
-            HostHeader()
+            HostHeader(onPair: { pairing = true })
                 .padding(.horizontal, 8)
                 .padding(.top, 6)
                 .padding(.bottom, 10)
@@ -179,10 +171,10 @@ struct ConversationListView: View {
                 .foregroundStyle(Theme.muted)
                 .padding(.leading, 8)
                 .padding(.vertical, 8)
-            ForEach(store.conversations) { c in
+            ForEach(store.conversations.filter(\.archived)) { c in
                 chatRow(c, subtitle: store.folderName(c.workspaceDir))
             }
-            if store.conversations.isEmpty && store.state == .connected {
+            if !store.conversations.contains(where: \.archived) && store.hasLoadedList {
                 Text("No archived chats")
                     .foregroundStyle(Theme.muted)
                     .frame(maxWidth: .infinity)
@@ -205,9 +197,9 @@ struct ConversationListView: View {
 
     private var bottomBar: some View {
         HStack(spacing: 4) {
-            BarButton(systemImage: "folder.badge.plus") { addingFolder = true }
+            BarButton(label: "Add folder", systemImage: "folder.badge.plus") { addingFolder = true }
                 .disabled(store.state != .connected)
-            BarButton(systemImage: "gauge.with.dots.needle.33percent") { showUsage = true }
+            BarButton(label: "Usage", systemImage: "gauge.with.dots.needle.33percent") { showUsage = true }
             Menu {
                 Section("Macs") {
                     ForEach(store.hosts) { host in
@@ -230,7 +222,7 @@ struct ConversationListView: View {
                     .frame(width: 44, height: 44)
             }
             Spacer()
-            BarButton(systemImage: "gearshape") { showSettings = true }
+            BarButton(label: "Settings", systemImage: "gearshape") { showSettings = true }
         }
         .padding(.horizontal, 10)
         .padding(.top, 4)
@@ -243,6 +235,7 @@ struct ConversationListView: View {
 
 /// Mac name with its connection state, at the top of the list.
 private struct HostHeader: View {
+    let onPair: () -> Void
     @Environment(RemoteStore.self) private var store
 
     var body: some View {
@@ -259,17 +252,27 @@ private struct HostHeader: View {
                 HStack(spacing: 5) {
                     Circle().fill(color).frame(width: 6, height: 6)
                     Text(label)
+                        .lineLimit(1)
                         .font(.caption)
                         .foregroundStyle(Theme.muted)
                 }
             }
+            Spacer(minLength: 8)
+            if case .failed = store.state {
+                Button("Retry") { store.reconnect() }
+            } else if store.state == .unpaired {
+                Button("Pair", action: onPair)
+            }
         }
+        .buttonStyle(.borderless)
+        .frame(minHeight: 44)
     }
 
     private var label: String {
         switch store.state {
         case .connected: "Connected"
         case .connecting: "Connecting…"
+        case .failed(let message): "Offline · \(message)"
         case .unpaired: "Not paired"
         default: "Offline"
         }
@@ -396,6 +399,7 @@ struct RowButtonStyle: ButtonStyle {
 }
 
 private struct BarButton: View {
+    let label: String
     let systemImage: String
     let action: () -> Void
 
@@ -406,31 +410,7 @@ private struct BarButton: View {
                 .foregroundStyle(Theme.muted)
                 .frame(width: 44, height: 44)
         }
-    }
-}
-
-private struct StatusBanner: View {
-    let text: String
-    let systemImage: String
-    let action: String
-    let perform: () -> Void
-
-    var body: some View {
-        Button(action: perform) {
-            HStack(alignment: .top, spacing: 10) {
-                Image(systemName: systemImage)
-                Text(text)
-                    .multilineTextAlignment(.leading)
-                Spacer(minLength: 0)
-                Text(action).fontWeight(.medium).foregroundStyle(Theme.text)
-            }
-            .font(.footnote)
-            .foregroundStyle(Theme.muted)
-            .padding(12)
-            .background(Theme.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        }
-        .buttonStyle(.plain)
-        .padding(.bottom, 8)
+        .accessibilityLabel(label)
     }
 }
 

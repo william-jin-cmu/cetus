@@ -169,7 +169,7 @@ final class ChatModel {
         } catch {
             // The cached copy stays up; reconnecting reloads it (`resync`).
             // An error row here would offer Retry, which reruns the turn.
-            if stale { return }
+            if loaded { return }
             self.error = error.localizedDescription
             loadFailed = true
         }
@@ -195,6 +195,10 @@ final class ChatModel {
         guard !retrying, let store else { return }
         retrying = true
         defer { retrying = false }
+        if loadFailed {
+            await load()
+            return
+        }
         let onScreen = timeline.messages.last { $0.role == .user }?.blocks.compactMap { b -> String? in
             if case .text(_, let t, _) = b { return t }
             return nil
@@ -225,7 +229,7 @@ final class ChatModel {
     func send() async {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         let pending = images
-        guard !text.isEmpty || !pending.isEmpty, let store else { return }
+        guard !text.isEmpty || !pending.isEmpty, let store, store.state == .connected else { return }
         draft = ""
         images = []
         // Mid-run, follow-ups queue (as on the desktop); Steer sends one now.
@@ -238,8 +242,8 @@ final class ChatModel {
             try await store.send(text, images: pending, to: conversationId)
         } catch {
             self.error = error.localizedDescription
-            draft = text
-            images = pending
+            draft = draft.isEmpty ? text : [text, draft].filter { !$0.isEmpty }.joined(separator: "\n\n")
+            images.insert(contentsOf: pending, at: 0)
             await load()
         }
     }

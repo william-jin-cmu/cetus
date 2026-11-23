@@ -18,7 +18,7 @@ export const APP_WINDOWS: WindowSpec[] = [
       minWidth: 700,
       minHeight: 480,
       show: false,
-      titleBarStyle: "hidden",
+      titleBarStyle: process.platform === "darwin" ? "hidden" : "default",
       acceptFirstMouse: true,
     },
   },

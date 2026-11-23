@@ -116,7 +116,7 @@ export const en = {
   "onboarding.runtime.cetus.description":
     "Built on pi and powered by DeepSeek for affordable everyday agent work.",
   "onboarding.runtime.cli.description":
-    "Use the {name} CLI already installed and signed in on this Mac.",
+    "Use the {name} CLI already installed and signed in on this computer.",
   "onboarding.runtime.ready": "Ready",
   "onboarding.runtime.notInstalled": "Not installed",
   "onboarding.runtime.keyNeeded": "Key needed",

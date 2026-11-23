@@ -297,9 +297,16 @@ pub(super) fn copy_dir(src: &Path, dst: &Path) -> std::io::Result<()> {
         let from = entry.path();
         let to = dst.join(entry.file_name());
         if ty.is_symlink() {
-            let link_target = std::fs::read_link(&from)?;
-            let _ = std::fs::remove_file(&to);
-            std::os::unix::fs::symlink(&link_target, &to)?;
+            #[cfg(unix)]
+            {
+                let link_target = std::fs::read_link(&from)?;
+                let _ = std::fs::remove_file(&to);
+                std::os::unix::fs::symlink(&link_target, &to)?;
+            }
+            #[cfg(windows)]
+            return Err(std::io::Error::other(
+                "unexpected symlink in Windows runtime",
+            ));
         } else if ty.is_dir() {
             copy_dir(&from, &to)?;
         } else {

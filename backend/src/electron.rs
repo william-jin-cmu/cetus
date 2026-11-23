@@ -262,6 +262,9 @@ pub fn window_state(env: Env, label: String, state_json: Option<String>, ns_view
     let Ok(mut state) = serde_json::from_str::<WindowState>(&json) else {
         return;
     };
+    #[cfg(not(target_os = "macos"))]
+    let prev = 0;
+    #[cfg(target_os = "macos")]
     let prev = {
         use host::Manager;
         app.get_webview_window(&label)

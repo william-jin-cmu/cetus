@@ -13,6 +13,9 @@ export function workspaceName(p: string): string {
     const parts = sshUrl[2].split("/").filter(Boolean);
     return `${host}:${parts.length ? parts[parts.length - 1] : "/"}`;
   }
+  if (/^[a-z]:[\\/]/i.test(p) || p.startsWith("\\\\")) {
+    return p.split(/[\\/]/).filter(Boolean).pop() ?? p;
+  }
   const scp = p.match(/^([^/:\s]+@?[^/:\s]+):(.+)$/);
   if (scp) {
     const parts = scp[2].split("/").filter(Boolean);

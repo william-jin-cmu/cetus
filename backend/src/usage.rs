@@ -199,7 +199,7 @@ pub async fn provider_usage(
     // custom DeepSeek provider) share the same API key against official DeepSeek.
     let pi_ds_key = resolve_pi_deepseek_key();
     let pi_ds_official = crate::provider::deepseek_base_url(&state.store)
-        .is_none_or(|u| u.contains("api.deepseek.com"));
+        .map_or(true, |u| u.contains("api.deepseek.com"));
     let dsh_ds_key = if cli_settings.dsh_enabled {
         resolve_dsh_deepseek_key()
     } else {

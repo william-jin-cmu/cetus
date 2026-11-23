@@ -73,11 +73,15 @@ pub async fn run_bash(
     // Use the user's interactive shell so PATH / aliases match their terminal;
     // `-l -c` loads the login profile then runs the command string. Fall back
     // to /bin/sh when $SHELL is unset (rare, but keeps us safe).
+    #[cfg(windows)]
+    let (shell, flags) = ("powershell.exe".to_string(), ["-NoProfile", "-Command"]);
+    #[cfg(unix)]
+    let flags = ["-l", "-c"];
+    #[cfg(unix)]
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
 
     let child = Command::new(&shell)
-        .arg("-l")
-        .arg("-c")
+        .args(flags)
         .arg(&command)
         .current_dir(&dir)
         // Detach stdin so an interactive command (one that reads input) returns
@@ -96,6 +100,11 @@ pub async fn run_bash(
         Ok(res) => res.map_err(|e| e.to_string())?,
         Err(_) => {
             if let Some(pid) = pid {
+                #[cfg(windows)]
+                let _ = std::process::Command::new("taskkill.exe")
+                    .args(["/T", "/F", "/PID", &pid.to_string()])
+                    .output();
+                #[cfg(unix)]
                 let _ = std::process::Command::new("/bin/kill")
                     .arg("-9")
                     .arg(pid.to_string())

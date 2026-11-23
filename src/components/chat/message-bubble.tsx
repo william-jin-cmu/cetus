@@ -180,11 +180,11 @@ function MessageBubbleView({
             disabled={!onQuoteClick}
             title={t("quote.goToSource")}
             aria-label={t("quote.goToSource")}
-            className="flex max-w-full items-start gap-1.5 rounded px-1 text-left text-md leading-relaxed text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring disabled:cursor-default"
+            className="flex max-w-[min(100%,32rem)] items-start gap-1.5 rounded px-1 text-left text-md leading-relaxed text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring disabled:cursor-default"
           >
             <CornerDownRight className="mt-1 size-3.5 shrink-0 opacity-70" />
-            <span className="line-clamp-2 min-w-0 whitespace-pre-wrap break-words">
-              {quoteSplit.quote}
+            <span className="line-clamp-2 min-w-0 break-words">
+              {quoteSplit.quote.replace(/\s+/g, " ").trim()}
             </span>
           </button>
         )}

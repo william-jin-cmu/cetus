@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 const release = Boolean(process.env.CETUS_ELECTRON_RELEASE);
-const here = path.dirname(new URL(import.meta.url).pathname);
+const here = import.meta.dirname;
 const pkg = JSON.parse(fs.readFileSync(path.join(here, "..", "package.json"), "utf8"));
 
 await build({

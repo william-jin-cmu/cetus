@@ -160,6 +160,9 @@ pub struct Updater {
 
 impl Updater {
     pub async fn check(&self) -> Result<Option<Update>> {
+        if cfg!(windows) {
+            return Ok(None);
+        }
         let manifest: Manifest = http(&self.current_version)?
             .get(ENDPOINT)
             .send()

@@ -135,24 +135,12 @@ pub async fn read_text_file(path: String) -> CmdResult<String> {
 }
 
 #[host::command]
-pub async fn reveal_in_finder(path: String) -> CmdResult<()> {
-    #[cfg(target_os = "macos")]
-    {
-        std::process::Command::new("open")
-            .arg("-R")
-            .arg(&path)
-            .spawn()
-            .map_err(err)?;
-    }
-    #[cfg(all(unix, not(target_os = "macos")))]
-    {
-        let parent = std::path::Path::new(&path)
-            .parent()
-            .ok_or_else(|| "no parent dir".to_string())?;
-        std::process::Command::new("xdg-open")
-            .arg(parent)
-            .spawn()
-            .map_err(err)?;
+pub async fn reveal_in_finder(app: host::AppHandle, path: String) -> CmdResult<()> {
+    let result = app
+        .host_call_async("reveal_item", serde_json::json!({ "path": path }))
+        .await;
+    if result != true {
+        return Err("operating system could not open the item".into());
     }
     Ok(())
 }
@@ -166,26 +154,18 @@ pub async fn reveal_in_finder(path: String) -> CmdResult<()> {
 /// Routing the click through a separate `open` process resolves the http(s)
 /// scheme to the default browser, so the page actually opens in a browser.
 #[host::command]
-pub async fn open_external(url: String) -> CmdResult<()> {
+pub async fn open_external(app: host::AppHandle, url: String) -> CmdResult<()> {
     // Only hand off web/mail links — never arbitrary schemes from model output
     // (e.g. `file://`, custom app schemes) which could launch unexpected apps.
     let allowed = ["http://", "https://", "mailto:"];
     if !allowed.iter().any(|p| url.starts_with(p)) {
         return Err(format!("refusing to open non-web url: {url}"));
     }
-    #[cfg(target_os = "macos")]
-    {
-        std::process::Command::new("open")
-            .arg(&url)
-            .spawn()
-            .map_err(err)?;
-    }
-    #[cfg(all(unix, not(target_os = "macos")))]
-    {
-        std::process::Command::new("xdg-open")
-            .arg(&url)
-            .spawn()
-            .map_err(err)?;
+    let result = app
+        .host_call_async("open_external_url", serde_json::json!({ "url": url }))
+        .await;
+    if result != true {
+        return Err("operating system could not open the item".into());
     }
     Ok(())
 }
@@ -195,20 +175,12 @@ pub async fn open_external(url: String) -> CmdResult<()> {
 /// filesystem path rather than a URL, so it powers the artifact dialog's "Open"
 /// action across every file type.
 #[host::command]
-pub async fn open_path(path: String) -> CmdResult<()> {
-    #[cfg(target_os = "macos")]
-    {
-        std::process::Command::new("open")
-            .arg(&path)
-            .spawn()
-            .map_err(err)?;
-    }
-    #[cfg(all(unix, not(target_os = "macos")))]
-    {
-        std::process::Command::new("xdg-open")
-            .arg(&path)
-            .spawn()
-            .map_err(err)?;
+pub async fn open_path(app: host::AppHandle, path: String) -> CmdResult<()> {
+    let result = app
+        .host_call_async("open_local_path", serde_json::json!({ "path": path }))
+        .await;
+    if result != true {
+        return Err("operating system could not open the item".into());
     }
     Ok(())
 }

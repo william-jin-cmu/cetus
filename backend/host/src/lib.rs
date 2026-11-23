@@ -135,6 +135,7 @@ pub struct PathResolver {
     resource_dir: PathBuf,
 }
 
+#[cfg(not(windows))]
 fn home() -> PathBuf {
     std::env::var_os("HOME")
         .map(PathBuf::from)
@@ -143,6 +144,11 @@ fn home() -> PathBuf {
 
 impl PathResolver {
     pub fn app_data_dir(&self) -> Result<PathBuf> {
+        #[cfg(windows)]
+        return std::env::var_os("APPDATA")
+            .map(|dir| PathBuf::from(dir).join(&self.identifier))
+            .ok_or_else(|| Error("APPDATA missing".into()));
+        #[cfg(not(windows))]
         Ok(home()
             .join("Library/Application Support")
             .join(&self.identifier))

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <radialGradient id="ambient-glow" cx="52%" cy="48%" r="48%" fx="50%" fy="44%">
+      <stop offset="0%" stop-color="#A59EFF" stop-opacity="0.42"/>
+      <stop offset="48%" stop-color="#837BF5" stop-opacity="0.16"/>
+      <stop offset="100%" stop-color="#837BF5" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#ambient-glow)"/>
+</svg>

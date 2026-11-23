@@ -22,7 +22,8 @@ import os from "node:os";
 import path from "node:path";
 import { packager } from "@electron/packager";
 
-const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
+const root = path.resolve(import.meta.dirname, "..");
+const windows = process.argv.includes("--windows-x64");
 const skipWeb = process.argv.includes("--skip-web");
 const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
 const electronVersion = JSON.parse(
@@ -36,11 +37,14 @@ function run(cmd, args, opts = {}) {
 }
 
 const backendDir = path.join(root, "backend");
-if (!fs.existsSync(path.join(backendDir, "pi-install"))) {
-  run(path.join(root, "scripts", "build-pi-sidecar.sh"), [], { cwd: root });
+const piDir = path.join(backendDir, windows ? "target/windows-runtime/pi-install" : "pi-install");
+if (!fs.existsSync(path.join(piDir, windows ? "pi.exe" : "pi"))) {
+  run(path.join(root, "scripts", "build-pi-sidecar.sh"), windows ? ["windows-x64"] : [], { cwd: root });
 }
-run("cargo", ["build", "--release", "--lib"], { cwd: backendDir });
-run("cargo", ["build", "--release"], { cwd: path.join(backendDir, "cli") });
+const target = "x86_64-pc-windows-gnu";
+const targetArgs = windows ? ["--target", target] : [];
+run("cargo", ["build", "--release", "--lib", ...targetArgs], { cwd: backendDir });
+run("cargo", ["build", "--release", ...targetArgs], { cwd: path.join(backendDir, "cli") });
 run("node", [path.join(root, "electron", "build.mjs")], {
   env: { ...process.env, CETUS_ELECTRON_RELEASE: "1" },
 });
@@ -69,13 +73,14 @@ fs.writeFileSync(
 const native = path.join(resDir, "native");
 fs.mkdirSync(native);
 fs.copyFileSync(
-  path.join(backendDir, "target", "release", "libcetus_lib.dylib"),
+  path.join(backendDir, "target", windows ? target : "", "release", windows ? "cetus_lib.dll" : "libcetus_lib.dylib"),
   path.join(native, "cetus.node"),
 );
 const bin = path.join(resDir, "bin");
 fs.mkdirSync(bin);
-fs.copyFileSync(path.join(backendDir, "cli", "target", "release", "cetus"), path.join(bin, "cetus"));
-fs.chmodSync(path.join(bin, "cetus"), 0o755);
+const cliName = windows ? "cetus.exe" : "cetus";
+fs.copyFileSync(path.join(backendDir, "cli", "target", windows ? target : "", "release", cliName), path.join(bin, cliName));
+fs.chmodSync(path.join(bin, cliName), 0o755);
 const icons = path.join(resDir, "icons");
 fs.mkdirSync(icons);
 for (const f of ["icon.png"]) {
@@ -95,16 +100,17 @@ const [appPath] = await packager({
   dir: appDir,
   out: outDir,
   overwrite: true,
-  platform: "darwin",
-  arch: "arm64",
+  platform: windows ? "win32" : "darwin",
+  arch: windows ? "x64" : "arm64",
   electronVersion,
   name: "Cetus",
   executableName: "Cetus",
+  win32metadata: { CompanyName: "Cetus" },
   appBundleId: pkg.cetus.appId,
   appVersion: pkg.version,
   buildVersion: pkg.version,
   appCategoryType: "public.app-category.developer-tools",
-  icon: path.join(backendDir, "icons", "icon.icns"),
+  icon: path.join(backendDir, "icons", windows ? "icon.ico" : "icon.icns"),
   asar: true,
   prune: false,
   darwinDarkModeSupport: true,
@@ -114,7 +120,7 @@ const [appPath] = await packager({
     icons,
     ...sounds,
     path.join(root, "out"),
-    path.join(backendDir, "pi-install"),
+    ...(windows ? [] : [piDir]),
   ],
   extendInfo: {
     LSMinimumSystemVersion: "13.0",
@@ -129,6 +135,20 @@ const [appPath] = await packager({
   // own entitlements, which the packager's signer doesn't know about).
   osxSign: undefined,
 });
+
+if (windows) {
+  // The Windows runtime tree must contain regular files, including npm shims.
+  const runtime = path.join(appPath, "resources", "pi-install");
+  fs.cpSync(piDir, runtime, { recursive: true, dereference: true });
+  fs.copyFileSync(path.join(root, "docs", "windows.md"), path.join(appPath, "README.md"));
+  const archive = path.join(outDir, `Cetus-${pkg.version}-windows-x64.zip`);
+  const stagedArchive = path.join(stage, "Cetus.zip");
+  run("zip", ["-qr", stagedArchive, path.basename(appPath)], { cwd: outDir });
+  fs.copyFileSync(stagedArchive, archive);
+  fs.rmSync(stage, { recursive: true, force: true });
+  console.log(archive);
+  process.exit(0);
+}
 
 const app = path.join(appPath, "Cetus.app");
 

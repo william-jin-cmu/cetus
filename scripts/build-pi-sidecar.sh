@@ -20,7 +20,13 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEST_DIR="$REPO_ROOT/backend/pi-install"
 
-case "$(uname -s)-$(uname -m)" in
+INSTALL_ARGS=()
+BUILD_ARGS=()
+case "${1:-$(uname -s)-$(uname -m)}" in
+  windows-x64)
+    CLIP_PLATFORM="win32-x64-msvc"; PI_FILENAME="pi.exe"
+    DEST_DIR="$REPO_ROOT/backend/target/windows-runtime/pi-install"
+    INSTALL_ARGS=(--os win32 --cpu x64); BUILD_ARGS=(--target=bun-windows-x64) ;;
   Darwin-arm64)       CLIP_PLATFORM="darwin-arm64";       PI_FILENAME="pi" ;;
   Darwin-x86_64)      CLIP_PLATFORM="darwin-x64";         PI_FILENAME="pi" ;;
   Linux-x86_64)       CLIP_PLATFORM="linux-x64";          PI_FILENAME="pi" ;;
@@ -54,7 +60,7 @@ tar -xzf "$WORK/pi.tgz" -C "$WORK"
 cd "$WORK/package"
 
 echo "→ Installing runtime deps with bun..."
-bun install --silent
+bun install "${INSTALL_ARGS[@]+${INSTALL_ARGS[@]}}" --silent
 
 # MCP client used by cetus-extensions/mcp-bridge.ts to connect user-configured
 # MCP servers ("Connectors") and expose their tools to the agent. Installed into
@@ -62,10 +68,10 @@ bun install --silent
 # "mcporter"` from <bindir>/cetus-extensions/. Pinned; runs under pi's bun runtime.
 MCPORTER_VERSION="0.11.3"
 echo "→ Adding mcporter@$MCPORTER_VERSION (MCP bridge dependency)..."
-bun add "mcporter@$MCPORTER_VERSION" --silent
+bun add "${INSTALL_ARGS[@]+${INSTALL_ARGS[@]}}" "mcporter@$MCPORTER_VERSION" --silent
 
 echo "→ Compiling single-file binary..."
-bun build --compile ./dist/bun/cli.js --outfile "$PI_FILENAME"
+bun build --compile "${BUILD_ARGS[@]+${BUILD_ARGS[@]}}" ./dist/bun/cli.js --outfile "$PI_FILENAME"
 
 echo "→ Assembling install tree at $DEST_DIR"
 rm -rf "$DEST_DIR"
@@ -211,6 +217,10 @@ echo "  install tree: $BEFORE_SZ → $(du -sh "$DEST_DIR" | awk '{print $1}')"
 # pi 0.82+ hides providers without configured credentials even for a local
 # catalog listing. Supply a non-secret placeholder so this command enumerates
 # the compiled registry; --list-models makes no API request.
+if [[ "$PI_FILENAME" = pi.exe && "$(uname -s)" != MINGW* ]]; then
+  echo "Windows runtime assembled. Run the model-registry check on Windows."
+  exit 0
+fi
 DEEPSEEK_MODELS="$(DEEPSEEK_API_KEY=cetus-build-check "$DEST_DIR/$PI_FILENAME" --extension "$DEST_DIR/cetus-extensions/deepseek-endpoint.ts" --list-models deepseek)"
 echo "$DEEPSEEK_MODELS"
 for MODEL in deepseek-flash; do

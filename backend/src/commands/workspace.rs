@@ -795,32 +795,19 @@ pub async fn rename_workspace_entry(
 }
 
 #[host::command]
-pub async fn trash_workspace_entry(workspace_dir: String, path: String) -> CmdResult<()> {
+pub async fn trash_workspace_entry(
+    app: host::AppHandle,
+    workspace_dir: String,
+    path: String,
+) -> CmdResult<()> {
     if cetus_bridge::remote::parse_remote_workspace(&workspace_dir).is_some() {
         return Err("trashing remote files from Files is not supported yet".to_string());
     }
     let (_, target) = checked_local_workspace_entry(&workspace_dir, &path)?;
-    #[cfg(target_os = "macos")]
-    let status = std::process::Command::new("osascript")
-        .args([
-            "-e",
-            "on run argv",
-            "-e",
-            "tell application \"Finder\" to delete POSIX file (item 1 of argv)",
-            "-e",
-            "end run",
-            "--",
-        ])
-        .arg(&target)
-        .status()
-        .map_err(err)?;
-    #[cfg(all(unix, not(target_os = "macos")))]
-    let status = std::process::Command::new("gio")
-        .arg("trash")
-        .arg(&target)
-        .status()
-        .map_err(err)?;
-    if status.success() {
+    let result = app
+        .host_call_async("trash_item", serde_json::json!({ "path": target }))
+        .await;
+    if result == true {
         Ok(())
     } else {
         Err("the operating system could not move the entry to Trash".to_string())

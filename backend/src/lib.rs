@@ -95,7 +95,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-const PI_BINARY_NAME: &str = "pi";
+const PI_BINARY_NAME: &str = if cfg!(windows) { "pi.exe" } else { "pi" };
 
 /// Pool of `pi --mode rpc` child processes — one per active conversation.
 ///

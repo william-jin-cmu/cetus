@@ -107,7 +107,7 @@ struct NewChatView: View {
         .tapDismissesKeyboard()
         .swipeDownDismissesKeyboard()
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            ComposerBar(text: $text, images: $images, placeholder: "What should it do?", busy: busy, onSend: start) {
+            ComposerBar(text: $text, images: $images, placeholder: "What should it do?", busy: busy, connected: store.state == .connected, onSend: start) {
                 RuntimeMenu(selected: runtime) { r in
                     runtime = r.rawValue
                 } label: {

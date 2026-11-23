@@ -10,6 +10,7 @@ struct ComposerBar<Chip: View>: View {
     var placeholder = "Message"
     var running = false
     var busy = false
+    var connected = true
     var onSend: () -> Void
     var onStop: () -> Void = {}
     @ViewBuilder var chip: Chip
@@ -19,7 +20,7 @@ struct ComposerBar<Chip: View>: View {
     @State private var focused = false
 
     private var canSend: Bool {
-        !busy && (!text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !images.isEmpty)
+        connected && !busy && (!text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !images.isEmpty)
     }
 
     var body: some View {
@@ -55,12 +56,14 @@ struct ComposerBar<Chip: View>: View {
             .padding(.horizontal, 6)
             .padding(.top, 4)
             HStack(spacing: 6) {
-                PhotosPicker(selection: $picked, maxSelectionCount: 4, matching: .images) {
+                PhotosPicker(selection: $picked, maxSelectionCount: max(1, 4 - images.count), matching: .images) {
                     Image(systemName: "plus")
                         .font(.system(size: 19, weight: .light))
                         .foregroundStyle(Theme.muted)
                         .frame(width: 36, height: 36)
                 }
+                .disabled(images.count >= 4)
+                .accessibilityLabel("Attach photos")
                 chip
                 Spacer(minLength: 4)
                 if running && !canSend {
@@ -82,6 +85,7 @@ struct ComposerBar<Chip: View>: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Stop")
+                    .disabled(!connected)
                 } else {
                     Button {
                         sends += 1
@@ -99,6 +103,7 @@ struct ComposerBar<Chip: View>: View {
                         .frame(width: 36, height: 36)
                         .background(canSend || busy ? Theme.accent : Theme.faint.opacity(0.45), in: Circle())
                     }
+                    .accessibilityLabel("Send")
                     .disabled(!canSend)
                 }
             }
@@ -122,6 +127,7 @@ struct ComposerBar<Chip: View>: View {
                     if let data = try? await item.loadTransferable(type: Data.self), let img = UIImage(data: data),
                        let out = OutgoingImage(img)
                     {
+                        guard images.count < 4 else { break }
                         images.append(out)
                     }
                 }

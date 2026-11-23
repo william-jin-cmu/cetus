@@ -350,9 +350,7 @@ pub(crate) async fn sync_codex_archive_state(
 }
 
 fn executable_on_path(name: &str) -> bool {
-    std::env::var_os("PATH")
-        .map(|path| std::env::split_paths(&path).any(|dir| dir.join(name).is_file()))
-        .unwrap_or(false)
+    crate::diagnostics::resolve_on_path(name).is_some()
 }
 
 fn claude_defaults(home: &Path) -> CliDefaults {

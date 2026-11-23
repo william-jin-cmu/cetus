@@ -154,6 +154,7 @@ private struct ChatContent: View {
                         images: $model.images,
                         placeholder: model.running ? "Queue a follow-up" : "Message",
                         running: model.running,
+                        connected: store.state == .connected,
                         onSend: {
                             sent += 1
                             Task { await model.send() }
@@ -209,7 +210,11 @@ private struct ChatContent: View {
                             Text(store.folderName(c.workspaceDir))
                             Text("·")
                             Image(systemName: "laptopcomputer").font(.system(size: 9))
-                            Text(store.selectedHost?.macName ?? "Mac")
+                            if store.state == .connected {
+                                Text(store.selectedHost?.macName ?? "Mac")
+                            } else {
+                                Text(store.state == .connecting ? "Connecting…" : "Offline")
+                            }
                         }
                         .font(.caption)
                         .foregroundStyle(Theme.muted)
