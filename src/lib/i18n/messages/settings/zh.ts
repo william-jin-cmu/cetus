@@ -94,7 +94,8 @@ export const zh = {
   "runtimes.title": "Runtime",
   "runtimes.description":
     "选择哪些编程智能体显示在 Runtime 选择器中，并按你的偏好调整顺序。顺序同时决定 ⌃1…⌃9 快捷键：谁排在上面谁拿到靠前的键位，preset 也参与排序。",
-  "runtimes.builtIn": "始终可用",
+  "runtimes.builtIn": "内置",
+  "runtimes.lastEnabled": "至少需要保留一个 Runtime",
   "runtimes.installed": "已安装",
   "runtimes.notInstalled": "未安装",
   "runtimes.codexNotSignedIn": "未登录",
@@ -189,21 +190,19 @@ export const zh = {
     "允许智能体读取其它应用目录里的文件（邮件、微信、备忘录等），不再反复弹出「访问其他 App 的数据」。",
 
   // --- 首次引导 ---------------------------------------------------------
-  "onboarding.welcome.title": "选择 cetus 的思考方式",
+  "onboarding.welcome.title": "选择你的智能体",
   "onboarding.welcome.subtitle":
-    "使用内置智能体，或复用这台 Mac 上已有的 Claude Code 与 Codex，之后可以随时切换。",
-  "onboarding.welcome.start": "继续设置权限",
-  "onboarding.runtime.cetus.description":
-    "基于 pi、由 DeepSeek 驱动，适合低成本的日常 Agent 工作。",
-  "onboarding.runtime.cli.description":
-    "复用这台电脑上已安装并登录的 {name} CLI。",
+    "cetus 直接复用这台 Mac 上已登录的智能体，无需填写 API 密钥。已就绪的已为你开启。",
+  "onboarding.welcome.start": "继续",
   "onboarding.runtime.ready": "已就绪",
   "onboarding.runtime.notInstalled": "未安装",
-  "onboarding.runtime.keyNeeded": "需要密钥",
-  "onboarding.runtime.configure": "配置 DeepSeek 密钥",
+  "onboarding.runtime.keyOptional": "尚未配置模型",
   "onboarding.runtime.deepseekKey": "DeepSeek API 密钥",
   "onboarding.runtime.save": "保存密钥",
-  "onboarding.runtime.keyNote": "密钥会安全地保存在 macOS 钥匙串中。",
+  "onboarding.runtime.keyNote":
+    "可选。可以现在填写，也可以稍后在「设置 → API 密钥」或「模型」中配置。密钥保存在 macOS 钥匙串中。",
+  "onboarding.runtime.note":
+    "只有开启的智能体会出现在 Runtime 选择器中，之后可在「设置 → Runtime」中随时调整。",
   "onboarding.skip": "暂时跳过",
   "onboarding.back": "返回",
   "onboarding.done": "完成",
@@ -220,7 +219,7 @@ export const zh = {
   "providers.volcArk": "Volcano Ark（改写）",
   "apiKeys.title": "API 密钥",
   "apiKeys.description":
-    "密钥保存在系统钥匙串中。保存后会重启 pi 子进程，新密钥即刻生效。",
+    "均为可选。Claude Code、Codex 等 CLI Runtime 使用各自的登录状态。DeepSeek 用于内置的 Cetus 智能体，其余密钥用于联网搜索和云端语音。密钥保存在系统钥匙串中，保存后会重启内置智能体，新密钥即刻生效。",
   "apiKeys.stored": "● 已保存",
   "apiKeys.unsaved": "● 未保存",
   "apiKeys.replace": "替换",

@@ -45,7 +45,10 @@ pub struct CliAgentSettings {
     /// as grey text in an empty composer (Tab accepts). Defaults ON; read when
     /// a conversation's claude process spawns.
     pub prompt_suggestions: bool,
-    /// Expose the built-in ACP runtime descriptors in runtime pickers.
+    /// Expose each runtime in the pickers. The built-in Cetus agent (`pi`) can
+    /// be switched off like any other; [`normalize_runtime_order`] keeps at
+    /// least one runtime on.
+    pub pi_enabled: bool,
     pub claude_code_enabled: bool,
     pub codex_enabled: bool,
     pub opencode_enabled: bool,
@@ -79,6 +82,7 @@ impl Default for CliAgentSettings {
             bypass_approvals: true,
             isolate_in_worktree: false,
             prompt_suggestions: true,
+            pi_enabled: true,
             claude_code_enabled: true,
             codex_enabled: true,
             opencode_enabled: true,
@@ -97,6 +101,24 @@ impl Default for CliAgentSettings {
                 "dsh".into(),
             ],
             runtime_presets: Vec::new(),
+        }
+    }
+}
+
+impl CliAgentSettings {
+    /// Whether `backend` is switched on in Settings › Runtimes. Unknown ids
+    /// are not this setting's to veto.
+    pub fn runtime_enabled(&self, backend: &str) -> bool {
+        match backend {
+            "pi" => self.pi_enabled,
+            "claude-code" => self.claude_code_enabled,
+            "codex" => self.codex_enabled,
+            "opencode" => self.opencode_enabled,
+            "grok" => self.grok_enabled,
+            "kimi" => self.kimi_enabled,
+            "antigravity" => self.antigravity_enabled,
+            "dsh" => self.dsh_enabled,
+            _ => true,
         }
     }
 }
@@ -152,6 +174,11 @@ fn normalize_runtime_order(settings: &mut CliAgentSettings) {
         }
     }
     settings.runtime_order = normalized;
+    // Pickers fall back to the first enabled runtime, so one must exist. A
+    // blob with everything off gets the built-in agent back.
+    if !RUNTIME_IDS.iter().any(|id| settings.runtime_enabled(id)) {
+        settings.pi_enabled = true;
+    }
 }
 
 pub(crate) fn save_settings(store: &Store, s: &CliAgentSettings) -> anyhow::Result<()> {

@@ -76,7 +76,8 @@ export const BACKENDS: { id: BackendId; label: string; icon: AppIcon }[] = [
 ];
 
 export function useRuntimeCatalog() {
-  const { order, entries, enabledBackendIds } = useRuntimePreferences();
+  const { order, entries, enabledBackendIds, defaultBackend } =
+    useRuntimePreferences();
   const orderedBackends = useMemo(() => {
     const byId = new Map(BACKENDS.map((backend) => [backend.id, backend]));
     return order.flatMap((id) => {
@@ -84,7 +85,7 @@ export function useRuntimeCatalog() {
       return backend ? [backend] : [];
     });
   }, [order]);
-  return { orderedBackends, entries, enabledBackendIds };
+  return { orderedBackends, entries, enabledBackendIds, defaultBackend };
 }
 
 export type TunableBackendId = "claude-code" | "codex" | "grok" | "dsh" | "antigravity" | "opencode";
@@ -716,7 +717,7 @@ export function BackendPicker({
   // Account-level quota snapshots (backend id → rate_limit_info), fed by the
   // CLI's rate_limit_event heartbeat. Shown only inside the dropdown.
   const cliRateLimits = useChatStore((s) => s.cliRateLimits);
-  const { entries, enabledBackendIds } = useRuntimeCatalog();
+  const { entries, enabledBackendIds, defaultBackend } = useRuntimeCatalog();
   const availableEntries = entries.filter((entry) =>
     entry.kind === "backend"
       ? enabledBackendIds.has(entry.id) ||
@@ -744,11 +745,14 @@ export function BackendPicker({
   }
 
   useEffect(() => {
+    // A new chat whose remembered runtime was switched off moves to the first
+    // enabled one — Cetus itself may be the one that's off.
     if (conversationId || enabledBackendIds.has(pendingValue ?? "pi")) return;
-    setBackend("pi");
+    setBackend(defaultBackend);
     onPendingTuningChange?.("", "");
   }, [
     conversationId,
+    defaultBackend,
     enabledBackendIds,
     pendingValue,
     onPendingTuningChange,

@@ -380,7 +380,9 @@ export interface CliAgentSettings {
   isolateInWorktree: boolean;
   /** Show Claude Code's predicted next prompt in an empty composer. */
   promptSuggestions: boolean;
-  /** Runtime visibility. Cetus itself stays enabled as the safe fallback. */
+  /** Runtime visibility in the pickers. Any of them — the built-in Cetus
+   *  (`pi`) included — can be switched off; at least one always stays on. */
+  piEnabled: boolean;
   claudeCodeEnabled: boolean;
   codexEnabled: boolean;
   opencodeEnabled: boolean;

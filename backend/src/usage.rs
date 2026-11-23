@@ -260,13 +260,15 @@ pub async fn provider_usage(
 
     let mut by_runtime: HashMap<String, ProviderUsage> = HashMap::new();
 
-    if let Some(card) = pi_usage(
-        &state.store,
-        pi_ds_key.as_deref(),
-        pi_ds_official,
-        &ds_balances,
-    ) {
-        by_runtime.insert("pi".into(), card);
+    if cli_settings.pi_enabled {
+        if let Some(card) = pi_usage(
+            &state.store,
+            pi_ds_key.as_deref(),
+            pi_ds_official,
+            &ds_balances,
+        ) {
+            by_runtime.insert("pi".into(), card);
+        }
     }
     if let Some(card) = claude_card {
         by_runtime.insert("claude-code".into(), card);
@@ -349,11 +351,29 @@ pub async fn provider_usage(
         providers,
         fetched_at: chrono::Utc::now().timestamp_millis(),
     };
-    *CACHE.lock().unwrap() = Some(Cache {
-        at: Instant::now(),
-        snapshot: snapshot.clone(),
-    });
+    if !snapshot.providers.iter().any(|p| p.status == "error") {
+        *CACHE.lock().unwrap() = Some(Cache {
+            at: Instant::now(),
+            snapshot: snapshot.clone(),
+        });
+    }
     Ok(snapshot)
+}
+
+fn format_http_error(e: &reqwest::Error) -> String {
+    if e.is_timeout() {
+        return "request timed out".into();
+    }
+    let mut cur: &dyn std::error::Error = e;
+    while let Some(src) = cur.source() {
+        cur = src;
+    }
+    let root = cur.to_string();
+    if root.is_empty() {
+        e.to_string()
+    } else {
+        root
+    }
 }
 
 fn home() -> Option<PathBuf> {
@@ -765,7 +785,7 @@ async fn claude_get(
         .header("anthropic-beta", CLAUDE_OAUTH_BETA)
         .send()
         .await
-        .map_err(|e| format!("Couldn't reach Anthropic ({e})"))
+        .map_err(|e| format!("Couldn't reach Anthropic ({})", format_http_error(&e)))
 }
 
 async fn claude_usage(client: &reqwest::Client, store: &Store) -> ProviderUsage {
@@ -983,7 +1003,7 @@ async fn codex_usage(client: &reqwest::Client, store: &Store) -> ProviderUsage {
                 KIND,
                 NAME,
                 "subscription",
-                format!("Couldn't reach ChatGPT ({e})"),
+                format!("Couldn't reach ChatGPT ({})", format_http_error(&e)),
             )
         }
     };

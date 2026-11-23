@@ -57,6 +57,7 @@ import {
   DEFAULT_CLI_AGENT_SETTINGS,
   isBackendEnabled,
   normalizeRuntimeEntryOrder,
+  runtimeEnabledPatch,
   runtimeEntries,
   runtimeSlotDisplay,
 } from "@/lib/runtime-settings";
@@ -77,30 +78,6 @@ const RUNTIME_COMMANDS: Record<BackendId, string> = {
   antigravity: "agy acp",
   dsh: "dsh web + Cetus bridge",
 };
-
-function runtimeEnabledPatch(
-  backend: BackendId,
-  enabled: boolean,
-): Partial<CliAgentSettings> {
-  switch (backend) {
-    case "claude-code":
-      return { claudeCodeEnabled: enabled };
-    case "codex":
-      return { codexEnabled: enabled };
-    case "opencode":
-      return { opencodeEnabled: enabled };
-    case "grok":
-      return { grokEnabled: enabled };
-    case "antigravity":
-      return { antigravityEnabled: enabled };
-    case "kimi":
-      return { kimiEnabled: enabled };
-    case "dsh":
-      return { dshEnabled: enabled };
-    case "pi":
-      return {};
-  }
-}
 
 /** A runtime row wired into dnd-kit's sortable list. The grip on the left edge
  *  is the drag handle; the rest of the row keeps its clicks (switch, delete). */
@@ -218,6 +195,11 @@ export function RuntimesSection() {
   }
 
   const entries = runtimeEntries(settings);
+  // Any runtime can be switched off — the built-in Cetus included — but the
+  // last one left on is locked, so a picker never ends up empty.
+  const enabledCount = BACKENDS.filter((backend) =>
+    isBackendEnabled(backend.id, settings),
+  ).length;
   const byId = new Map(BACKENDS.map((backend) => [backend.id, backend]));
   const isInstalled = (id: BackendId) => {
     if (id === "pi") return true;
@@ -310,6 +292,7 @@ export function RuntimesSection() {
               // Read off the section's own state so the chip moves with the
               // row the instant it's reordered, not a save round-trip later.
               const slotKey = runtimeSlotDisplay(id, settings, shortcuts);
+              const lastEnabled = enabled && enabledCount <= 1;
               return (
                 <SortableRuntimeRow key={id} id={id}>
                   <div
@@ -368,18 +351,23 @@ export function RuntimesSection() {
                       {RUNTIME_COMMANDS[id]}
                     </p>
                   </div>
-                  <Switch
-                    id={`runtime-enabled-${id}`}
-                    data-testid={`runtime-enabled-${id}`}
-                    checked={enabled}
-                    disabled={id === "pi"}
-                    aria-label={t("runtimes.enabled", {
-                      runtime: runtime.label,
-                    })}
-                    onCheckedChange={(value) =>
-                      update(runtimeEnabledPatch(id, value))
-                    }
-                  />
+                  <span
+                    className="flex"
+                    title={lastEnabled ? t("runtimes.lastEnabled") : undefined}
+                  >
+                    <Switch
+                      id={`runtime-enabled-${id}`}
+                      data-testid={`runtime-enabled-${id}`}
+                      checked={enabled}
+                      disabled={lastEnabled}
+                      aria-label={t("runtimes.enabled", {
+                        runtime: runtime.label,
+                      })}
+                      onCheckedChange={(value) =>
+                        update(runtimeEnabledPatch(id, value))
+                      }
+                    />
+                  </span>
                 </SortableRuntimeRow>
               );
             })}

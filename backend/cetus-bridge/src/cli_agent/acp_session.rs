@@ -244,6 +244,120 @@ async fn probe_config_catalog(backend: CliBackend) -> Result<Value> {
     Ok(result)
 }
 
+/// Slash catalog (commands + skills) an ACP runtime announces for `cwd`, read
+/// before any conversation exists. ACP agents publish it only through an
+/// `available_commands_update` after `session/new`, so open an empty session,
+/// wait for that notification, then close it. No model request is made.
+pub async fn probe_acp_commands(backend: CliBackend, cwd: &Path) -> Result<Vec<Value>> {
+    anyhow::ensure!(
+        matches!(
+            backend,
+            CliBackend::OpenCode | CliBackend::Grok | CliBackend::Kimi | CliBackend::Antigravity
+        ),
+        "{} has no ACP command probe",
+        backend.as_str()
+    );
+    let mut command = TokioCommand::new(backend.default_bin());
+    command
+        .args(backend.acp_args())
+        .current_dir(cwd)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .kill_on_drop(true);
+    let auth = if backend == CliBackend::Antigravity {
+        configure_antigravity(&mut command)
+    } else {
+        None
+    };
+    let mut child = command.spawn()?;
+    let mut stdin = child.stdin.take().context("missing stdin")?;
+    let mut reader = BufReader::new(child.stdout.take().context("missing stdout")?).lines();
+    acp_handshake_request(
+        &mut stdin,
+        &mut reader,
+        1,
+        "initialize",
+        json!({
+            "protocolVersion": 1, "clientCapabilities": {},
+            "clientInfo": { "name": "cetus", "version": env!("CARGO_PKG_VERSION") }
+        }),
+    )
+    .await?;
+    if let Some(method) = auth {
+        acp_handshake_request(
+            &mut stdin,
+            &mut reader,
+            2,
+            "authenticate",
+            json!({ "methodId": method }),
+        )
+        .await?;
+    }
+    // Read session/new by hand: the catalog notification can land before or
+    // after its response, and the shared handshake helper drops notifications.
+    acp_write(
+        &mut stdin,
+        &json!({ "jsonrpc": "2.0", "id": 3, "method": "session/new",
+                 "params": { "cwd": cwd, "mcpServers": [] } }),
+    )
+    .await
+    .context("failed to write ACP session/new request")?;
+    let mut session_id: Option<String> = None;
+    let mut commands: Option<Vec<Value>> = None;
+    // Generous before the session exists (cold start); short afterwards, since
+    // agents announce the catalog right after session/new.
+    let mut deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    while commands.is_none() {
+        let Ok(line) = tokio::time::timeout_at(deadline, reader.next_line()).await else {
+            break;
+        };
+        let Some(line) = line? else { break };
+        let Ok(value) = serde_json::from_str::<Value>(&line) else {
+            continue;
+        };
+        if value.get("id").and_then(Value::as_u64) == Some(3) && value.get("method").is_none() {
+            if let Some(error) = value.get("error") {
+                anyhow::bail!("ACP session/new failed: {error}");
+            }
+            session_id = value
+                .pointer("/result/sessionId")
+                .and_then(Value::as_str)
+                .map(str::to_string);
+            deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+            continue;
+        }
+        if value.get("method").is_some() && value.get("id").is_some() {
+            acp_decline_request(&mut stdin, &value).await;
+            continue;
+        }
+        let update = value.pointer("/params/update");
+        if update
+            .and_then(|u| u.get("sessionUpdate"))
+            .and_then(Value::as_str)
+            == Some("available_commands_update")
+        {
+            let event = acp_commands_event(update.unwrap_or(&Value::Null));
+            commands = event["commands"].as_array().cloned();
+        }
+    }
+    if let Some(id) = session_id {
+        let _ = tokio::time::timeout(
+            Duration::from_secs(2),
+            acp_handshake_request(
+                &mut stdin,
+                &mut reader,
+                1000,
+                "session/close",
+                json!({ "sessionId": id }),
+            ),
+        )
+        .await;
+    }
+    let _ = child.kill().await;
+    commands.context("ACP agent announced no command catalog")
+}
+
 /// One persistent native-ACP process and session. OpenCode, Grok Build and
 /// Kimi differ only in argv; their wire behavior is handled here.
 #[derive(Clone)]

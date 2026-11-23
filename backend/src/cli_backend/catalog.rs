@@ -257,8 +257,13 @@ pub async fn probe_cli_commands(
     cwd: Option<String>,
     force_refresh: Option<bool>,
 ) -> Result<Vec<Value>, String> {
-    if backend != "claude-code" && backend != "codex" {
-        // ACP runtimes announce their catalogs only after a session opens.
+    // ACP runtimes announce their catalogs only inside a session, so those are
+    // probed through a throwaway one. dsh has no user skills to surface.
+    let acp = cetus_bridge::cli_agent::CliBackend::from_id(&backend).filter(|b| {
+        use cetus_bridge::cli_agent::CliBackend as B;
+        matches!(b, B::OpenCode | B::Grok | B::Kimi | B::Antigravity)
+    });
+    if backend != "claude-code" && backend != "codex" && acp.is_none() {
         return Ok(Vec::new());
     }
     let dir = cwd.unwrap_or_default();
@@ -295,7 +300,22 @@ pub async fn probe_cli_commands(
                 }
             }
         }
-        _ => None,
+        _ => {
+            let probe_dir = match Path::new(&dir).is_dir() {
+                true => PathBuf::from(&dir),
+                false => std::env::temp_dir(),
+            };
+            match acp {
+                Some(b) => match cetus_bridge::cli_agent::probe_acp_commands(b, &probe_dir).await {
+                    Ok(commands) => Some(commands),
+                    Err(error) => {
+                        tracing::warn!("{backend} command catalog probe failed: {error}");
+                        None
+                    }
+                },
+                None => None,
+            }
+        }
     };
     let Some(commands) = resolved else {
         // A transient runtime failure must not throw away the last good menu.

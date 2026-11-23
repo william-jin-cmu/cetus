@@ -10,6 +10,7 @@ fn legacy_cli_settings_enable_and_order_every_runtime_by_default() {
     .unwrap();
     assert!(!settings.bypass_approvals);
     assert!(settings.isolate_in_worktree);
+    assert!(settings.pi_enabled);
     assert!(settings.claude_code_enabled);
     assert!(settings.codex_enabled);
     assert!(settings.opencode_enabled);
@@ -236,4 +237,30 @@ fn handoff_preamble_spends_budget_from_the_tail() {
     assert!(!p.contains("turn 0:"), "oldest turn should be dropped");
     assert!(p.contains("earlier messages omitted"));
     assert!(p.contains("…[truncated]"));
+}
+
+#[test]
+fn cetus_can_be_disabled_but_one_runtime_always_stays_on() {
+    let mut settings = CliAgentSettings {
+        pi_enabled: false,
+        ..Default::default()
+    };
+    normalize_runtime_order(&mut settings);
+    assert!(!settings.pi_enabled);
+    assert!(!settings.runtime_enabled("pi"));
+    assert!(settings.runtime_enabled("codex"));
+
+    let mut none = CliAgentSettings {
+        pi_enabled: false,
+        claude_code_enabled: false,
+        codex_enabled: false,
+        opencode_enabled: false,
+        grok_enabled: false,
+        kimi_enabled: false,
+        antigravity_enabled: false,
+        dsh_enabled: false,
+        ..Default::default()
+    };
+    normalize_runtime_order(&mut none);
+    assert!(none.pi_enabled);
 }

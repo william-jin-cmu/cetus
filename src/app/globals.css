@@ -3,6 +3,8 @@
 @import "@xterm/xterm/css/xterm.css";
 @import "../styles/cetus-tokens.css";
 @import "../styles/chat-wallpaper.css";
+@import "../styles/lift-tile.css";
+@import "../styles/onboarding.css";
 @plugin "@tailwindcss/typography";
 
 /* Make `.dark` an opt-in dark mode variant (layout.tsx sets it on <html>). */

@@ -179,17 +179,7 @@ pub async fn set_conversation_backend(
         return Err(format!("unknown runtime: {backend}"));
     }
     let cli_settings = crate::cli_backend::load_settings(&state.store);
-    let enabled = match backend.as_str() {
-        "claude-code" => cli_settings.claude_code_enabled,
-        "codex" => cli_settings.codex_enabled,
-        "opencode" => cli_settings.opencode_enabled,
-        "grok" => cli_settings.grok_enabled,
-        "kimi" => cli_settings.kimi_enabled,
-        "antigravity" => cli_settings.antigravity_enabled,
-        "dsh" => cli_settings.dsh_enabled,
-        _ => true,
-    };
-    if !enabled {
+    if !cli_settings.runtime_enabled(&backend) {
         return Err(format!("{backend} is disabled in Settings"));
     }
     if state.cli_turn_active(&id) {

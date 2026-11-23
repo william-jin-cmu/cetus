@@ -1,0 +1,55 @@
+/* One physical idea for anything that is on or off, used by the first-run
+   onboarding (agent tiles, permission rows): off is a shallow well pressed
+   into the surface, on is a key lifted out of it. The change of state is the
+   animation. Set `data-on` on the element; wrap a brand mark in `.lift-mark`
+   to have it grey out while off. */
+.lift-tile {
+  border-radius: 1rem;
+  text-align: left;
+  outline: none;
+  color: var(--muted-foreground);
+  background: color-mix(in oklab, var(--foreground) 3.5%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--foreground) 4%, transparent);
+  transition:
+    background-color 0.25s ease,
+    box-shadow 0.3s cubic-bezier(0.3, 0.7, 0.2, 1),
+    translate 0.3s cubic-bezier(0.3, 0.7, 0.2, 1),
+    scale 0.15s ease,
+    color 0.25s ease;
+}
+button.lift-tile:hover {
+  background: color-mix(in oklab, var(--foreground) 6%, transparent);
+}
+button.lift-tile:active {
+  scale: 0.975;
+}
+button.lift-tile:focus-visible {
+  box-shadow: 0 0 0 2px var(--ring);
+}
+.lift-tile[data-on="true"] {
+  color: var(--foreground);
+  background: var(--card);
+  translate: 0 -1px;
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--foreground) 9%, transparent),
+    0 1px 1px rgb(0 0 0 / 0.04),
+    0 3px 6px -2px rgb(0 0 0 / 0.07),
+    0 12px 22px -10px rgb(0 0 0 / 0.14);
+}
+.dark .lift-tile[data-on="true"] {
+  background: color-mix(in oklab, var(--foreground) 11%, var(--background));
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--foreground) 12%, transparent),
+    inset 0 1px 0 rgb(255 255 255 / 0.07),
+    0 4px 8px -2px rgb(0 0 0 / 0.3),
+    0 14px 24px -10px rgb(0 0 0 / 0.5);
+}
+.lift-tile .lift-mark {
+  transition:
+    filter 0.3s ease,
+    opacity 0.3s ease;
+}
+.lift-tile[data-on="false"] .lift-mark {
+  filter: grayscale(1);
+  opacity: 0.45;
+}

@@ -1,0 +1,251 @@
+/* First-run onboarding. Deliberately quiet: the app's own surface and tokens
+   (it follows the skin, light or dark), one card lifted on layered shadows,
+   and motion that only confirms what just happened — content settles in over
+   a few pixels, the card eases to its new height, rows arrive a beat apart. */
+
+.onb-root {
+  --onb-ease: cubic-bezier(0.3, 0.7, 0.2, 1);
+  background:
+    radial-gradient(
+      70% 55% at 50% 0%,
+      color-mix(in oklab, var(--brand) 7%, transparent),
+      transparent 70%
+    ),
+    var(--background);
+  animation: onb-fade 0.3s ease both;
+  transition: opacity 0.28s ease;
+}
+.onb-root[data-leaving="true"] {
+  opacity: 0;
+  pointer-events: none;
+}
+@keyframes onb-fade {
+  from { opacity: 0; }
+}
+
+/* The card. No drawn border: a hairline ring plus four stacked shadows, from
+   contact to ambient, read as real lift where one blurred shadow reads as a
+   smudge. */
+.onb-card {
+  border-radius: 1.75rem;
+  background: var(--card);
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--foreground) 7%, transparent),
+    0 1px 1px rgb(0 0 0 / 0.03),
+    0 3px 6px -1px rgb(0 0 0 / 0.04),
+    0 16px 32px -8px rgb(0 0 0 / 0.07),
+    0 48px 96px -32px rgb(0 0 0 / 0.14);
+  animation: onb-card-in 0.55s var(--onb-ease) both;
+  transition: transform 0.28s var(--onb-ease);
+}
+.dark .onb-card {
+  background: color-mix(in oklab, var(--foreground) 4%, var(--background));
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--foreground) 9%, transparent),
+    inset 0 1px 0 rgb(255 255 255 / 0.05),
+    0 6px 12px -2px rgb(0 0 0 / 0.25),
+    0 24px 48px -12px rgb(0 0 0 / 0.4),
+    0 48px 96px -32px rgb(0 0 0 / 0.5);
+}
+.onb-root[data-leaving="true"] .onb-card {
+  transform: translateY(4px) scale(0.985);
+}
+@keyframes onb-card-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.985); }
+}
+
+.onb-title {
+  font-family: var(--font-serif);
+  font-size: 1.875rem;
+  line-height: 1.1;
+  letter-spacing: -0.015em;
+}
+
+/* Eases the card between step heights (the height itself is measured). */
+.onb-resize {
+  overflow: hidden;
+  transition: height 0.38s var(--onb-ease);
+}
+
+/* A step settles in from the side it came from. */
+.onb-step {
+  animation: onb-step-in 0.38s var(--onb-ease) both;
+}
+.onb-step[data-dir="back"] {
+  --onb-from: -10px;
+}
+@keyframes onb-step-in {
+  from {
+    opacity: 0;
+    transform: translateX(var(--onb-from, 10px));
+    filter: blur(3px);
+  }
+}
+
+/* Rows arrive a beat apart. */
+.onb-item {
+  animation: onb-item-in 0.42s var(--onb-ease) both;
+  animation-delay: calc(60ms + var(--i, 0) * 32ms);
+}
+@keyframes onb-item-in {
+  from { opacity: 0; transform: translateY(6px); }
+}
+
+/* The tick in a tile's corner: a hairline ring that fills with the accent. */
+.onb-tick {
+  display: flex;
+  width: 1rem;
+  height: 1rem;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  color: transparent;
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--foreground) 16%, transparent);
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease,
+    box-shadow 0.2s ease,
+    scale 0.4s cubic-bezier(0.34, 1.5, 0.64, 1);
+}
+.lift-tile[data-on="true"] .onb-tick {
+  background: var(--primary);
+  color: var(--primary-foreground);
+  box-shadow: none;
+  scale: 1.08;
+}
+.lift-tile[data-granted="true"] .onb-tick {
+  background: var(--success);
+}
+
+.onb-ready-dot {
+  width: 0.3125rem;
+  height: 0.3125rem;
+  flex: none;
+  border-radius: 999px;
+  background: var(--success);
+  box-shadow: 0 0 0 2.5px color-mix(in oklab, var(--success) 16%, transparent);
+}
+
+/* The primary action: the app's brand accent, as everywhere else, in the
+   onboarding's own pill with a soft top highlight and a tinted drop shadow. */
+.onb-ink {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  border-radius: 999px;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font-weight: 500;
+  white-space: nowrap;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.22),
+    0 1px 2px color-mix(in oklab, var(--primary) 45%, rgb(0 0 0 / 0.3)),
+    0 6px 14px -6px color-mix(in oklab, var(--primary) 70%, transparent);
+  transition:
+    scale 0.15s ease,
+    translate 0.25s var(--onb-ease),
+    box-shadow 0.25s ease,
+    opacity 0.2s ease;
+}
+.onb-ink:hover:not(:disabled) {
+  translate: 0 -1px;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.22),
+    0 2px 3px color-mix(in oklab, var(--primary) 45%, rgb(0 0 0 / 0.3)),
+    0 10px 20px -8px color-mix(in oklab, var(--primary) 80%, transparent);
+}
+.onb-ink:active:not(:disabled) {
+  translate: 0 0;
+  scale: 0.97;
+}
+.onb-ink:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.onb-ink:disabled {
+  opacity: 0.35;
+}
+.onb-ink svg {
+  transition: translate 0.25s var(--onb-ease);
+}
+.onb-ink:hover:not(:disabled) svg.onb-arrow {
+  translate: 2px 0;
+}
+
+/* A pill that rides inside another control (the key field's Save): same
+   colour, no drop shadow or hover lift of its own. */
+.onb-ink.onb-ink-quiet,
+.onb-ink.onb-ink-quiet:hover:not(:disabled) {
+  translate: none;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.2);
+}
+
+.onb-link {
+  border-radius: 999px;
+  color: var(--muted-foreground);
+  transition: color 0.15s ease;
+}
+.onb-link:hover {
+  color: var(--foreground);
+}
+
+/* Recessed text field with its action tucked inside. */
+.onb-field {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  border-radius: 999px;
+  padding: 0.3125rem 0.3125rem 0.3125rem 0.9rem;
+  background: color-mix(in oklab, var(--foreground) 4.5%, transparent);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in oklab, var(--foreground) 5%, transparent),
+    inset 0 1px 2px rgb(0 0 0 / 0.04);
+  transition: box-shadow 0.2s ease;
+}
+.onb-field:focus-within {
+  box-shadow:
+    inset 0 0 0 1px color-mix(in oklab, var(--foreground) 22%, transparent),
+    inset 0 1px 2px rgb(0 0 0 / 0.04);
+}
+.onb-field input {
+  min-width: 0;
+  flex: 1;
+  background: transparent;
+  outline: none;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+}
+.onb-field input::placeholder {
+  font-family: var(--font-sans);
+  color: color-mix(in oklab, var(--muted-foreground) 75%, transparent);
+}
+
+/* Collapsible region (the optional key field): grid rows animate to auto. */
+.onb-reveal {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-rows 0.32s var(--onb-ease),
+    opacity 0.24s ease;
+}
+.onb-reveal[data-open="true"] {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+.onb-reveal > div {
+  min-height: 0;
+  overflow: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onb-root,
+  .onb-root * {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

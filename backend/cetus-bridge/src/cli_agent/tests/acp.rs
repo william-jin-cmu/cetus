@@ -598,3 +598,30 @@ fn acp_usage_update_emits_context_and_session_cost_without_opening_bubble() {
     assert_eq!(ev[0]["contextWindow"], json!(200_000));
     assert_eq!(ev[0]["sessionCostUsd"], json!(0.42));
 }
+
+/// Pre-session slash catalog of each installed ACP runtime. Run manually with:
+/// `cargo test -p cetus-bridge live_acp_command_probe -- --ignored --nocapture`.
+#[tokio::test]
+#[ignore]
+async fn live_acp_command_probe() {
+    let dir = std::env::temp_dir();
+    for backend in [CliBackend::OpenCode, CliBackend::Grok, CliBackend::Kimi] {
+        match super::super::probe_acp_commands(backend, &dir).await {
+            Ok(commands) => {
+                let names: Vec<_> = commands.iter().filter_map(|c| c["name"].as_str()).collect();
+                eprintln!(
+                    "{}: {} commands: {}",
+                    backend.as_str(),
+                    names.len(),
+                    names.join(", ")
+                );
+                assert!(
+                    !names.is_empty(),
+                    "{} announced an empty catalog",
+                    backend.as_str()
+                );
+            }
+            Err(error) => eprintln!("{} unavailable; skipping: {error}", backend.as_str()),
+        }
+    }
+}

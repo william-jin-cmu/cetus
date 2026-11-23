@@ -117,6 +117,17 @@ export const CODEX_CLI_COMMANDS: SlashItem[] = [
 // opens without spawning another vendor CLI process.
 export const RUNTIME_CATALOG_REFRESH_MS = 30_000;
 
+/** Runtimes whose slash catalog (commands + skills) the backend can probe
+ *  before a conversation's first turn. */
+export const PROBED_CATALOG_BACKENDS: ReadonlySet<string> = new Set([
+  "claude-code",
+  "codex",
+  "opencode",
+  "grok",
+  "kimi",
+  "antigravity",
+]);
+
 export const MAX_FILE_BYTES = 25 * 1024 * 1024;
 
 // 25MB — docx/xlsx/pdf etc., read on disk by the agent

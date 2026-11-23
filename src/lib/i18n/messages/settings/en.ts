@@ -109,21 +109,19 @@ export const en = {
     'Lets agents read files inside other apps\' folders (Mail, WeChat, Notes…) without macOS asking "access data from other apps" every time.',
 
   // --- Onboarding (first run) -------------------------------------------
-  "onboarding.welcome.title": "Choose how cetus thinks",
+  "onboarding.welcome.title": "Pick your agents",
   "onboarding.welcome.subtitle":
-    "Use the built-in agent or your existing Claude Code and Codex installations. You can switch anytime.",
-  "onboarding.welcome.start": "Continue to permissions",
-  "onboarding.runtime.cetus.description":
-    "Built on pi and powered by DeepSeek for affordable everyday agent work.",
-  "onboarding.runtime.cli.description":
-    "Use the {name} CLI already installed and signed in on this computer.",
+    "cetus runs on the agents already signed in on this Mac, so there's no API key to paste. The ones that are ready are switched on.",
+  "onboarding.welcome.start": "Continue",
   "onboarding.runtime.ready": "Ready",
   "onboarding.runtime.notInstalled": "Not installed",
-  "onboarding.runtime.keyNeeded": "Key needed",
-  "onboarding.runtime.configure": "Configure DeepSeek key",
+  "onboarding.runtime.keyOptional": "No model yet",
   "onboarding.runtime.deepseekKey": "DeepSeek API key",
   "onboarding.runtime.save": "Save key",
-  "onboarding.runtime.keyNote": "Stored securely in your macOS Keychain.",
+  "onboarding.runtime.keyNote":
+    "Optional. Add it now, or later in Settings → API keys or Models. Stored in your macOS Keychain.",
+  "onboarding.runtime.note":
+    "Only the agents left on appear in the runtime picker. Change this anytime in Settings → Runtimes.",
   "onboarding.skip": "Skip for now",
   "onboarding.back": "Back",
   "onboarding.done": "Done",
@@ -173,7 +171,8 @@ export const en = {
   "runtimes.title": "Runtimes",
   "runtimes.description":
     "Choose which coding agents appear in runtime pickers and arrange them in your preferred order. The order also sets the ⌃1…⌃9 keyboard shortcuts: whoever is on top gets the first key, presets included.",
-  "runtimes.builtIn": "Always available",
+  "runtimes.builtIn": "Built in",
+  "runtimes.lastEnabled": "At least one runtime has to stay on",
   "runtimes.installed": "Installed",
   "runtimes.notInstalled": "Not installed",
   "runtimes.codexNotSignedIn": "Not signed in",
@@ -241,7 +240,7 @@ export const en = {
   "providers.volcArk": "Volcano Ark (rewrite)",
   "apiKeys.title": "API keys",
   "apiKeys.description":
-    "Keys are stored in your OS keychain. Saving restarts the pi subprocess so new keys take effect immediately.",
+    "All optional. Claude Code, Codex and the other CLI runtimes use their own sign-in. DeepSeek powers the built-in Cetus agent; the rest unlock web search and cloud voice. Keys are stored in your OS keychain, and saving restarts the built-in agent so they take effect immediately.",
   "apiKeys.stored": "● stored",
   "apiKeys.unsaved": "● unsaved",
   "apiKeys.replace": "Replace",

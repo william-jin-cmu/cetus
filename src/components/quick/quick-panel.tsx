@@ -23,7 +23,7 @@ import {
   useRuntimeShortcuts,
   type RuntimeSwitchTarget,
 } from "@/components/chat/backend-picker";
-import { useEnabledBackendIds } from "@/lib/runtime-settings";
+import { useRuntimePreferences } from "@/lib/runtime-settings";
 import {
   Select,
   SelectContent,
@@ -93,7 +93,7 @@ function readZoom(): number {
  *  the "quick-open" event the gesture listener emits. */
 export function QuickPanel() {
   const { t } = useTranslation("quick");
-  const enabledBackendIds = useEnabledBackendIds();
+  const { enabledBackendIds, defaultBackend } = useRuntimePreferences();
   const [text, setText] = useState("");
   const [attachments, setAttachments] = useState<QuickAttachment[]>([]);
   const [attachError, setAttachError] = useState<string | null>(null);
@@ -129,10 +129,10 @@ export function QuickPanel() {
   const [cliEffort, setCliEffort] = useState("");
   useEffect(() => {
     if (enabledBackendIds.has(backend)) return;
-    setBackend("pi");
+    setBackend(defaultBackend);
     setCliModel("");
     setCliEffort("");
-  }, [backend, enabledBackendIds]);
+  }, [backend, defaultBackend, enabledBackendIds]);
   // True while the native "Add folder…" dialog is open, so the blur-to-dismiss
   // handler doesn't close the panel when that OS dialog steals focus.
   const pickingWorkspaceRef = useRef(false);

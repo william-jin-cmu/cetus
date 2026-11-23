@@ -68,6 +68,7 @@ import type {
 import { toast } from "sonner";
 import {
   quoteKey,
+  PROBED_CATALOG_BACKENDS,
   RUNTIME_CATALOG_REFRESH_MS,
   escapeRegExp,
   CLAUDE_CLI_COMMANDS,
@@ -619,7 +620,7 @@ export function Composer({
 
   const probeRuntimeCatalog = useCallback(
     (refreshIfStale: boolean) => {
-      if (backend !== "claude-code" && backend !== "codex") return;
+      if (!PROBED_CATALOG_BACKENDS.has(backend)) return;
       const cwd = workspaceDir ?? defaultWorkspace;
       const key = `${backend}\n${cwd}`;
       const inFlight = catalogProbeRef.current;
@@ -706,7 +707,9 @@ export function Composer({
       ...byRank(list.filter((it) => it.kind === "skill")),
     ];
     // CLI runtimes own their skill catalogs. Claude reports built-ins + skills
-    // in its initialize ack; Codex reports skills via app-server skills/list.
+    // in its initialize ack; Codex reports skills via app-server skills/list;
+    // ACP runtimes (OpenCode, Grok, Kimi, Antigravity) via the
+    // available_commands_update of a throwaway probe session.
     // Do not merge Cetus/pi's managed/discovered skills into either runtime:
     // seeing a skill in the menu must mean the selected runtime can invoke it.
     // Live session catalog when there is one, probed catalog otherwise.

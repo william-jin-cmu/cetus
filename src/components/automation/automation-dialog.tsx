@@ -91,7 +91,8 @@ export function AutomationDialog({
 }: Props) {
   const { t } = useTranslation("automation");
   const { t: tc } = useTranslation("common");
-  const { orderedBackends, enabledBackendIds } = useRuntimeCatalog();
+  const { orderedBackends, enabledBackendIds, defaultBackend } =
+    useRuntimeCatalog();
   const [name, setName] = useState("");
   const [prompt, setPrompt] = useState("");
   const [model, setModel] = useState<ModelChoice>(defaultModel ?? DEFAULT_MODEL_CHOICE);
@@ -120,10 +121,10 @@ export function AutomationDialog({
 
   useEffect(() => {
     if (automation || enabledBackendIds.has(backend)) return;
-    setBackend("pi");
+    setBackend(defaultBackend);
     setCliModel("");
     setCliEffort("");
-  }, [automation, backend, enabledBackendIds]);
+  }, [automation, backend, defaultBackend, enabledBackendIds]);
 
   // ⌃1…⌃9 (user-editable) switch the automation's runtime while the dialog
   // is open — page.tsx's global handler is modal-guarded here. A preset slot

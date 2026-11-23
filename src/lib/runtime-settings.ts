@@ -13,6 +13,7 @@ export const DEFAULT_CLI_AGENT_SETTINGS: CliAgentSettings = {
   bypassApprovals: true,
   isolateInWorktree: false,
   promptSuggestions: true,
+  piEnabled: true,
   claudeCodeEnabled: true,
   codexEnabled: true,
   opencodeEnabled: true,
@@ -31,6 +32,8 @@ export function isBackendEnabled(
   settings: CliAgentSettings,
 ): boolean {
   switch (backend) {
+    case "pi":
+      return settings.piEnabled;
     case "claude-code":
       return settings.claudeCodeEnabled;
     case "codex":
@@ -48,6 +51,43 @@ export function isBackendEnabled(
     default:
       return true;
   }
+}
+
+/** The settings patch that shows or hides one runtime in the pickers. */
+export function runtimeEnabledPatch(
+  backend: BackendId,
+  enabled: boolean,
+): Partial<CliAgentSettings> {
+  switch (backend) {
+    case "pi":
+      return { piEnabled: enabled };
+    case "claude-code":
+      return { claudeCodeEnabled: enabled };
+    case "codex":
+      return { codexEnabled: enabled };
+    case "opencode":
+      return { opencodeEnabled: enabled };
+    case "grok":
+      return { grokEnabled: enabled };
+    case "antigravity":
+      return { antigravityEnabled: enabled };
+    case "kimi":
+      return { kimiEnabled: enabled };
+    case "dsh":
+      return { dshEnabled: enabled };
+  }
+}
+
+/** The runtime a new chat lands on when its remembered pick is unavailable:
+ *  the first enabled one in the user's order. Every runtime — the built-in
+ *  Cetus included — can be switched off, but saves keep at least one on, so
+ *  the "pi" tail is only a guard for a hand-edited settings blob. */
+export function firstEnabledBackend(settings: CliAgentSettings): BackendId {
+  return (
+    normalizeRuntimeOrder(settings.runtimeOrder).find((id) =>
+      isBackendEnabled(id, settings),
+    ) ?? "pi"
+  );
 }
 
 /** Live settings shared across every runtime picker, including the quick
@@ -138,6 +178,8 @@ export function useRuntimePreferences(): {
   order: BackendId[];
   entries: RuntimeEntry[];
   enabledBackendIds: ReadonlySet<BackendId>;
+  /** Where a new chat lands when its remembered runtime is switched off. */
+  defaultBackend: BackendId;
 } {
   const settings = useCliAgentSettings();
   return useMemo(() => {
@@ -149,6 +191,7 @@ export function useRuntimePreferences(): {
       enabledBackendIds: new Set(
         order.filter((id) => isBackendEnabled(id, settings)),
       ),
+      defaultBackend: firstEnabledBackend(settings),
     };
   }, [settings]);
 }
