@@ -58,6 +58,11 @@ final class ChatModel {
     private(set) var stale = false
     /// A failed request or run, shown where the reply would be.
     var error: String?
+    private(set) var sendError: String?
+    private(set) var sentTurn = 0
+    private(set) var sending = false
+    private var needsHistoryAfterSend = false
+    private var receivedEventDuringSend = false
     private(set) var retrying = false
     /// The error on screen is a failed history load; the next good one clears it.
     private var loadFailed = false
@@ -114,11 +119,11 @@ final class ChatModel {
 
     /// Show the last-seen copy of this chat while the Mac is asked.
     func showCached() async {
-        guard !loaded, let host = store?.selectedHostId,
+        guard !loaded, !sending, let host = store?.selectedHostId,
               let cached = await SnapshotCache.chat(host: host, id: conversationId),
-              !loaded
+              !loaded, sentTurn == 0
         else { return }
-        timeline = ChatTimeline(snapshot: cached)
+        timeline = ChatTimeline(snapshot: cached, cached: true)
         _ = timeline.takeError()
         if let c = Conversation(cached["conversation"]) { conversation = c }
         stale = true
@@ -127,6 +132,11 @@ final class ChatModel {
 
     func load() async {
         guard let store else { return }
+        if sending {
+            needsHistoryAfterSend = true
+            return
+        }
+        let initialTurn = sentTurn
         do {
             #if DEBUG
             // `-demoSnapshot <file>`: render a saved conversations.get reply.
@@ -139,12 +149,17 @@ final class ChatModel {
                 return
             }
             #endif
+            guard store.state == .connected else { return }
             loads += 1
             defer {
                 loads -= 1
                 if loads == 0 { arrived = [] }
             }
             let snapshot = try await store.request("conversations.get", ["id": .string(conversationId)])
+            guard initialTurn == sentTurn else {
+                if sending { needsHistoryAfterSend = true } else { Task { await load() } }
+                return
+            }
             var fresh = ChatTimeline(snapshot: snapshot)
             // Events newer than the snapshot go on top of it. A Mac that
             // doesn't number its events can't say which ones those are.
@@ -182,6 +197,7 @@ final class ChatModel {
         // The cached copy can't take events; the snapshot on its way will.
         if stale { return }
         if event["type"].string == "agent_start" { error = nil }
+        if sending { receivedEventDuringSend = true }
         let effect = timeline.apply(event)
         if let failure = timeline.takeError() { error = failure }
         if effect == .refetch {
@@ -226,10 +242,10 @@ final class ChatModel {
         if c.id == conversationId { conversation = c }
     }
 
-    func send() async {
+    func send() {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         let pending = images
-        guard !text.isEmpty || !pending.isEmpty, let store, store.state == .connected else { return }
+        guard !sending, !text.isEmpty || !pending.isEmpty, let store, store.state == .connected else { return }
         draft = ""
         images = []
         // Mid-run, follow-ups queue (as on the desktop); Steer sends one now.
@@ -237,14 +253,39 @@ final class ChatModel {
             store.enqueue(text, images: pending, for: conversationId)
             return
         }
-        timeline.appendUser(text, images: pending.map(\.jpeg))
-        do {
-            try await store.send(text, images: pending, to: conversationId)
-        } catch {
-            self.error = error.localizedDescription
-            draft = draft.isEmpty ? text : [text, draft].filter { !$0.isEmpty }.joined(separator: "\n\n")
-            images.insert(contentsOf: pending, at: 0)
-            await load()
+        beginSend(text, photos: pending, store: store)
+    }
+
+    func sendFirst(_ text: String, photos: [OutgoingImage], store: RemoteStore) {
+        loaded = true
+        beginSend(text, photos: photos, store: store)
+    }
+
+    private func beginSend(_ text: String, photos: [OutgoingImage], store: RemoteStore) {
+        sendError = nil
+        sending = true
+        receivedEventDuringSend = false
+        let previous = timeline
+        sentTurn += 1
+        timeline.appendUser(text, images: photos.map(\.jpeg))
+        let optimisticId = timeline.messages.last?.id
+        Task {
+            do {
+                try await store.send(text, images: photos, to: conversationId)
+            } catch {
+                sendError = error.localizedDescription
+                if timeline.messages.last?.id == optimisticId && !receivedEventDuringSend {
+                    timeline = previous
+                }
+                draft = draft.isEmpty ? text : [text, draft].filter { !$0.isEmpty }.joined(separator: "\n\n")
+                images.insert(contentsOf: photos, at: 0)
+                needsHistoryAfterSend = true
+            }
+            sending = false
+            if needsHistoryAfterSend || stale || !loaded {
+                needsHistoryAfterSend = false
+                await load()
+            }
         }
     }
 
@@ -252,6 +293,7 @@ final class ChatModel {
 
     /// Optimistic echo of a queued message the store just delivered.
     func echo(_ item: QueuedMessage) {
+        sentTurn += 1
         timeline.appendUser(item.text, images: item.images.map(\.jpeg))
     }
 

@@ -76,6 +76,7 @@ export function renderComposer({
   slashStart,
   text,
   updateText,
+  stepHistory,
   taRef,
   slashSuppress,
   setSlashOpen,
@@ -162,6 +163,11 @@ export function renderComposer({
   slashStart: number;
   text: string;
   updateText: (v: string) => void;
+  stepHistory: (
+    direction: "up" | "down",
+    selectionStart: number,
+    selectionEnd: number,
+  ) => number | null;
   taRef: RefObject<HTMLTextAreaElement | null>;
   slashSuppress: RefObject<boolean>;
   setSlashOpen: Dispatch<SetStateAction<boolean>>;
@@ -617,6 +623,34 @@ export function renderComposer({
                 e.stopPropagation();
                 mentionSuppress.current = true;
                 closeMention();
+                return;
+              }
+            }
+            // Recall previously sent prompts with ↑ / ↓ when neither popup menu
+            // owns those keys and the caret is at the first/last line.
+            if (
+              (e.key === "ArrowUp" || e.key === "ArrowDown") &&
+              !e.shiftKey &&
+              !e.ctrlKey &&
+              !e.metaKey &&
+              !e.altKey &&
+              !composing
+            ) {
+              const el = e.currentTarget;
+              const caret = stepHistory(
+                e.key === "ArrowUp" ? "up" : "down",
+                el.selectionStart ?? 0,
+                el.selectionEnd ?? 0,
+              );
+              if (caret !== null) {
+                e.preventDefault();
+                slashSuppress.current = true;
+                mentionSuppress.current = true;
+                closeSlash();
+                closeMention();
+                requestAnimationFrame(() => {
+                  taRef.current?.setSelectionRange(caret, caret);
+                });
                 return;
               }
             }

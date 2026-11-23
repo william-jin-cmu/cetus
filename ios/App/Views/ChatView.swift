@@ -5,20 +5,22 @@ import SwiftUI
 struct ChatView: View {
     @Environment(RemoteStore.self) private var store
     let conversationId: String
+    var initialModel: ChatModel? = nil
     @State private var model: ChatModel?
 
     var body: some View {
         Group {
-            if let model {
+            if let model = model ?? initialModel {
                 ChatContent(model: model)
             } else {
                 Theme.background.ignoresSafeArea()
             }
         }
         .task(id: conversationId) {
-            let m = ChatModel(conversationId: conversationId, store: store)
+            let m = initialModel ?? ChatModel(conversationId: conversationId, store: store)
             model = m
             store.activeChat = m
+            if initialModel != nil { return }
             await m.showCached()
             await m.load()
         }
@@ -38,7 +40,7 @@ private struct ChatContent: View {
     @State private var expanded: Set<String> = []
     /// The bottom of the transcript is on screen.
     @State private var atBottom = true
-    @State private var sent = 0
+    private static let latestTurnId = "latest-turn"
     private static let bottomId = "bottom"
 
     /// After the new rows have laid out.
@@ -46,101 +48,118 @@ private struct ChatContent: View {
         proxy.scrollTo(Self.bottomId, anchor: .bottom)
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(60))
+            guard model.sentTurn == 0 else { return }
             proxy.scrollTo(Self.bottomId, anchor: .bottom)
         }
     }
 
     var body: some View {
         ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 18) {
-                    if model.timeline.truncated {
-                        Text("Showing recent messages. Earlier ones are on your Mac.")
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
-                            .frame(maxWidth: .infinity)
-                    }
-                    let items = model.timeline.items(running: model.running)
-                    ForEach(items) { item in
-                        switch item {
-                        case .user(let m):
-                            UserBubble(message: m)
-                        case .assistant(let turn):
-                            AssistantTurnView(turn: turn, startedAt: model.turnStartedAt, expanded: $expanded)
+            GeometryReader { viewport in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 18) {
+                        if model.timeline.truncated {
+                            Text("Showing recent messages. Earlier ones are on your Mac.")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                                .frame(maxWidth: .infinity)
+                        }
+                        let items = model.timeline.items(running: model.running)
+                        if !model.loaded, model.error == nil, !items.isEmpty, store.state == .connected {
+                            Text("Loading earlier messages…")
+                                .font(.caption)
+                                .foregroundStyle(Theme.muted)
+                                .frame(maxWidth: .infinity)
+                        }
+                        let start = model.sentTurn > 0 ? items.lastIndex(where: { item in
+                            if case .user = item { return true }
+                            return false
+                        }) : nil
+                        let split = start ?? items.endIndex
+                        ForEach(items[..<split]) { item in row(item) }
+                        VStack(alignment: .leading, spacing: 18) {
+                            ForEach(items[split...]) { item in row(item) }
+                            // Between the send and the first block of the reply; an
+                            // open turn carries the line itself.
+                            if model.sending, !(items.last?.isActiveTurn ?? false) {
+                                ProgressView("Sending…").font(.caption).foregroundStyle(Theme.muted)
+                            } else if model.loaded, model.running, !(items.last?.isActiveTurn ?? false) {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    AssistantLabel()
+                                    WorkingIndicator(startedAt: model.turnStartedAt)
+                                }
+                            }
+                            if let error = model.error {
+                                MessageErrorRow(
+                                    message: error,
+                                    retrying: model.retrying,
+                                    onRetry: { Task { await model.retry() } },
+                                    onDismiss: { model.error = nil }
+                                )
+                            }
+                            if (!model.loaded || model.stale) && model.error == nil && items.isEmpty && !model.running && store.state == .connected {
+                                TranscriptSkeleton()
+                            } else if (!model.loaded || model.stale) && items.isEmpty && model.error == nil && store.state != .connected {
+                                Text("Message history will appear when your Mac connects.")
+                                    .font(.subheadline)
+                                    .foregroundStyle(Theme.muted)
+                            }
+                            if model.queued.isEmpty { bottomMarker(height: viewport.size.height) }
+                        }
+                        .frame(maxWidth: .infinity, minHeight: start != nil && model.queued.isEmpty ? max(0, viewport.size.height - 24) : 0, alignment: .topLeading)
+                        .id(Self.latestTurnId)
+                        ForEach(model.queued) { item in
+                            VStack(spacing: 0) {
+                                QueuedMessageRow(item: item, onSteer: model.steer, onEdit: model.editQueued, onRemove: model.removeQueued)
+                                if item.id == model.queued.last?.id { bottomMarker(height: viewport.size.height) }
+                            }
+                            .frame(minHeight: item.id == model.queued.last?.id ? max(0, viewport.size.height - 24) : 0, alignment: .top)
+                            .id(item.id)
                         }
                     }
-                    // Between the send and the first block of the reply; an
-                    // open turn carries the line itself.
-                    if model.loaded, model.running, !(items.last?.isActiveTurn ?? false) {
-                        VStack(alignment: .leading, spacing: 8) {
-                            AssistantLabel()
-                            WorkingIndicator(startedAt: model.turnStartedAt)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                }
+                .coordinateSpace(name: "transcriptViewport")
+                .background(Theme.background)
+                .defaultScrollAnchor(model.sentTurn == 0 ? .bottom : .top)
+                .scrollDismissesKeyboard(.interactively)
+                .tapDismissesKeyboard()
+                .overlay(alignment: .bottom) {
+                    if !atBottom && model.loaded {
+                        Button {
+                            withAnimation(.snappy) { proxy.scrollTo(Self.bottomId, anchor: .bottom) }
+                        } label: {
+                            Image(systemName: "arrow.down")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(Theme.text)
+                                .frame(width: 36, height: 36)
+                                .background(Theme.surface, in: Circle())
+                                .overlay(Circle().strokeBorder(Theme.borderAccent, lineWidth: 1))
+                                .shadow(color: .black.opacity(0.12), radius: 6, y: 2)
                         }
+                        .padding(.bottom, 10)
+                        .transition(.opacity.combined(with: .scale(scale: 0.8)))
                     }
-                    if let error = model.error {
-                        MessageErrorRow(
-                            message: error,
-                            retrying: model.retrying,
-                            onRetry: { Task { await model.retry() } },
-                            onDismiss: { model.error = nil }
-                        )
-                    }
-                    if !model.loaded && model.error == nil {
-                        TranscriptSkeleton()
-                    }
-                    Color.clear
-                        .frame(height: 1)
-                        .id(Self.bottomId)
-                        .onAppear { atBottom = true }
-                        .onDisappear { atBottom = false }
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-            }
-            .background(Theme.background)
-            .defaultScrollAnchor(.bottom)
-            .scrollDismissesKeyboard(.interactively)
-            .tapDismissesKeyboard()
-            .overlay(alignment: .bottom) {
-                if !atBottom && model.loaded {
-                    Button {
-                        withAnimation(.snappy) { proxy.scrollTo(Self.bottomId, anchor: .bottom) }
-                    } label: {
-                        Image(systemName: "arrow.down")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(Theme.text)
-                            .frame(width: 36, height: 36)
-                            .background(Theme.surface, in: Circle())
-                            .overlay(Circle().strokeBorder(Theme.borderAccent, lineWidth: 1))
-                            .shadow(color: .black.opacity(0.12), radius: 6, y: 2)
-                    }
-                    .padding(.bottom, 10)
-                    .transition(.opacity.combined(with: .scale(scale: 0.8)))
+                .onChange(of: model.sentTurn, initial: true) { _, turn in
+                    if turn > 0 { proxy.scrollTo(Self.latestTurnId, anchor: .top) }
                 }
-            }
-            .animation(.snappy(duration: 0.2), value: atBottom)
-            .onChange(of: sent) {
-                withAnimation(.snappy) { proxy.scrollTo(Self.bottomId, anchor: .bottom) }
-            }
-            // Open at the latest message, whether the cached copy or the
-            // Mac's answer drew first, and stay there when the fresh copy
-            // replaces the cached one (unless the reader scrolled up).
-            .onChange(of: model.loaded) { _, loaded in
-                if loaded { scrollToBottomSoon(proxy) }
-            }
-            .onChange(of: model.stale) { was, now in
-                if was, !now, atBottom { scrollToBottomSoon(proxy) }
+                .onChange(of: model.queued.map(\.id)) { old, new in
+                    if let last = new.last, !old.contains(last) { proxy.scrollTo(last, anchor: .top) }
+                }
+                // Open at the latest message, whether the cached copy or the
+                // Mac's answer drew first, and stay there when the fresh copy
+                // replaces the cached one (unless the reader scrolled up).
+                .onChange(of: model.loaded) { _, loaded in
+                    if loaded, model.sentTurn == 0 { scrollToBottomSoon(proxy) }
+                }
+                .onChange(of: model.stale) { was, now in
+                    if was, !now, atBottom, model.sentTurn == 0 { scrollToBottomSoon(proxy) }
+                }
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 VStack(spacing: 8) {
-                    if !model.queued.isEmpty {
-                        QueuedMessagesView(
-                            items: model.queued,
-                            onSteer: model.steer,
-                            onEdit: model.editQueued,
-                            onRemove: model.removeQueued
-                        )
-                    }
                     if let control = model.timeline.controls.first {
                         ControlCard(control: control) { allow, answers in
                             Task { await model.respond(control, allow: allow, answers: answers) }
@@ -149,16 +168,20 @@ private struct ChatContent: View {
                     if let reason = model.timeline.compacting {
                         CompactionBar(reason: reason)
                     }
+                    if let message = model.sendError {
+                        Text("Delivery unconfirmed. Check the conversation before resending. \(message)")
+                            .font(.footnote)
+                            .foregroundStyle(Theme.danger)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                     ComposerBar(
                         text: $model.draft,
                         images: $model.images,
                         placeholder: model.running ? "Queue a follow-up" : "Message",
                         running: model.running,
+                        busy: model.sending,
                         connected: store.state == .connected,
-                        onSend: {
-                            sent += 1
-                            Task { await model.send() }
-                        },
+                        onSend: model.send,
                         onStop: { Task { await model.abort() } }
                     ) {
                         RuntimeMenu(selected: model.conversation?.backend ?? "pi") { r in
@@ -272,6 +295,27 @@ private struct ChatContent: View {
         }
         #endif
     }
+    private func bottomMarker(height: CGFloat) -> some View {
+        Color.clear
+            .frame(height: 1)
+            .id(Self.bottomId)
+            .onGeometryChange(for: Bool.self) { geometry in
+                let y = geometry.frame(in: .named("transcriptViewport")).midY
+                return y >= 0 && y <= height
+            } action: { visible in atBottom = visible }
+            .onDisappear { atBottom = false }
+    }
+
+    @ViewBuilder
+    private func row(_ item: TimelineItem) -> some View {
+        switch item {
+        case .user(let message):
+            UserBubble(message: message)
+        case .assistant(let turn):
+            AssistantTurnView(turn: turn, startedAt: model.turnStartedAt, expanded: $expanded)
+        }
+    }
+
 }
 
 private extension TimelineItem {
@@ -328,7 +372,7 @@ private struct TranscriptSkeleton: View {
     }
 }
 
-private struct UserBubble: View {
+struct UserBubble: View {
     let message: ChatMessage
 
     private var text: String {
@@ -660,60 +704,54 @@ private struct TableBox: View {
 
 /// Follow-ups waiting for the run to end, stacked above the composer. Steer
 /// sends one into the running turn now.
-private struct QueuedMessagesView: View {
-    let items: [QueuedMessage]
+private struct QueuedMessageRow: View {
+    let item: QueuedMessage
     let onSteer: (QueuedMessage) -> Void
     let onEdit: (QueuedMessage) -> Void
     let onRemove: (QueuedMessage) -> Void
 
     var body: some View {
-        VStack(spacing: 0) {
-            ForEach(Array(items.enumerated()), id: \.element.id) { i, item in
-                if i > 0 { Divider().overlay(Theme.border) }
-                HStack(spacing: 6) {
-                    Image(systemName: "clock")
-                        .font(.system(size: 12))
-                        .foregroundStyle(Theme.faint)
-                    Text(item.text.isEmpty ? "\(item.images.count) image\(item.images.count == 1 ? "" : "s")" : item.text)
-                        .font(Theme.label)
-                        .foregroundStyle(Theme.text)
-                        .lineLimit(2)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    if !item.images.isEmpty && !item.text.isEmpty {
-                        Image(systemName: "photo")
-                            .font(.system(size: 12))
-                            .foregroundStyle(Theme.muted)
-                    }
-                    Button {
-                        onSteer(item)
-                    } label: {
-                        Label("Steer", systemImage: "arrow.turn.down.right")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(Theme.text)
-                            .padding(.horizontal, 10)
-                            .frame(height: 28)
-                            .background(Theme.raised, in: Capsule())
-                    }
-                    .buttonStyle(.plain)
-                    Menu {
-                        Button("Edit", systemImage: "pencil") { onEdit(item) }
-                        Button("Remove", systemImage: "trash", role: .destructive) { onRemove(item) }
-                    } label: {
-                        Image(systemName: "ellipsis")
-                            .font(.system(size: 14))
-                            .foregroundStyle(Theme.muted)
-                            .frame(width: 30, height: 30)
-                            .contentShape(Rectangle())
-                    }
-                }
-                .padding(.leading, 12)
-                .padding(.trailing, 4)
-                .padding(.vertical, 6)
+        HStack(spacing: 6) {
+            Label("Queued", systemImage: "clock")
+                .font(.system(size: 12))
+                .foregroundStyle(Theme.faint)
+            Text(item.text.isEmpty ? "\(item.images.count) image\(item.images.count == 1 ? "" : "s")" : item.text)
+                .font(Theme.label)
+                .foregroundStyle(Theme.text)
+                .lineLimit(2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if !item.images.isEmpty && !item.text.isEmpty {
+                Image(systemName: "photo")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.muted)
+            }
+            Button {
+                onSteer(item)
+            } label: {
+                Label("Steer", systemImage: "arrow.turn.down.right")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Theme.text)
+                    .padding(.horizontal, 10)
+                    .frame(height: 28)
+                    .background(Theme.raised, in: Capsule())
+            }
+            .buttonStyle(.plain)
+            Menu {
+                Button("Edit", systemImage: "pencil") { onEdit(item) }
+                Button("Remove", systemImage: "trash", role: .destructive) { onRemove(item) }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 14))
+                    .foregroundStyle(Theme.muted)
+                    .frame(width: 30, height: 30)
+                    .contentShape(Rectangle())
             }
         }
+        .padding(.leading, 12)
+        .padding(.trailing, 4)
+        .padding(.vertical, 6)
         .background(Theme.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Theme.border, lineWidth: 0.5))
-        .sensoryFeedback(.impact(weight: .light), trigger: items.count)
     }
 }
 

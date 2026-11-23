@@ -6,7 +6,7 @@ import SwiftUI
 struct NewChatView: View {
     @Environment(RemoteStore.self) private var store
     var initialFolder: String?
-    let onCreated: (Conversation) -> Void
+    let onCreated: (ChatModel) -> Void
 
     @AppStorage("lastRuntime") private var runtime: String = Runtime.claudeCode.rawValue
     @AppStorage("lastFolder") private var lastFolder: String = ""
@@ -14,7 +14,8 @@ struct NewChatView: View {
     /// Restored from, and saved back to, the `chat:new` draft.
     @State private var text = DraftStore.text(DraftStore.key(for: nil))
     @State private var images: [OutgoingImage] = DraftStore.images(DraftStore.key(for: nil))
-    @State private var busy = false
+    @State private var pending: ChatMessage?
+    private var busy: Bool { pending != nil }
     @State private var error: String?
     @State private var pickingFolder = false
     /// This runtime's remembered model and effort.
@@ -36,6 +37,72 @@ struct NewChatView: View {
     }
 
     var body: some View {
+        Group {
+            if let pending {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        UserBubble(message: pending)
+                        ProgressView("Sending…").font(.caption).foregroundStyle(Theme.muted)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                }
+            } else {
+                setupFields
+            }
+        }
+        .background(Theme.background)
+        .tapDismissesKeyboard()
+        .swipeDownDismissesKeyboard()
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            ComposerBar(text: busy ? .constant("") : $text, images: busy ? .constant([]) : $images, placeholder: "What should it do?", busy: busy, connected: store.state == .connected, onSend: start) {
+                RuntimeMenu(selected: runtime) { r in
+                    runtime = r.rawValue
+                } label: {
+                    RuntimeChip(backend: runtime)
+                }
+                if let tuning, case let choice = tuningChoice.valid(in: tuning),
+                   let summary = tuning.summary(model: choice.model, effort: choice.effort)
+                {
+                    TuningMenu(tuning: tuning, model: choice.model, effort: choice.effort, onPick: pickTuning) {
+                        TuningChip(text: summary)
+                    }
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.bottom, 6)
+            .background(Theme.background)
+        }
+        .disabled(busy)
+        .onChange(of: runtime, initial: true) { tuningChoice = .load(runtime) }
+        .onChange(of: text) {
+            let key = DraftStore.key(for: nil)
+            // An edit from the Mac is already saved; don't send it back.
+            guard text != DraftStore.text(key) else { return }
+            DraftStore.setText(text, for: key)
+            store.scheduleDraftPush(key)
+        }
+        .onChange(of: store.remoteDraft) { _, remote in
+            if let remote, remote.key == DraftStore.key(for: nil) { text = remote.text }
+        }
+        .task(id: store.state == .connected) {
+            if let pulled = await store.pullDraft(DraftStore.key(for: nil)) { text = pulled }
+        }
+        .onChange(of: images.map(\.id)) { DraftStore.setImages(images, for: DraftStore.key(for: nil)) }
+        .task(id: "\(runtime) \(store.state == .connected)") { await store.loadTuning(runtime) }
+        .navigationTitle("New chat")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(Theme.background, for: .navigationBar)
+        .sheet(isPresented: $pickingFolder) {
+            FolderPickerSheet(selected: chosenFolder) { dir in
+                folder = dir
+                pickingFolder = false
+            }
+            .presentationDetents([.medium, .large])
+        }
+    }
+
+    private var setupFields: some View {
         VStack(spacing: 10) {
             Spacer()
             Button {
@@ -103,76 +170,33 @@ struct NewChatView: View {
         .padding(.horizontal, 16)
         .padding(.bottom, 16)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Theme.background)
-        .tapDismissesKeyboard()
-        .swipeDownDismissesKeyboard()
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            ComposerBar(text: $text, images: $images, placeholder: "What should it do?", busy: busy, connected: store.state == .connected, onSend: start) {
-                RuntimeMenu(selected: runtime) { r in
-                    runtime = r.rawValue
-                } label: {
-                    RuntimeChip(backend: runtime)
-                }
-                if let tuning, case let choice = tuningChoice.valid(in: tuning),
-                   let summary = tuning.summary(model: choice.model, effort: choice.effort)
-                {
-                    TuningMenu(tuning: tuning, model: choice.model, effort: choice.effort, onPick: pickTuning) {
-                        TuningChip(text: summary)
-                    }
-                }
-            }
-            .padding(.horizontal, 12)
-            .padding(.bottom, 6)
-            .background(Theme.background)
-        }
-        .onChange(of: runtime, initial: true) { tuningChoice = .load(runtime) }
-        .onChange(of: text) {
-            let key = DraftStore.key(for: nil)
-            // An edit from the Mac is already saved; don't send it back.
-            guard text != DraftStore.text(key) else { return }
-            DraftStore.setText(text, for: key)
-            store.scheduleDraftPush(key)
-        }
-        .onChange(of: store.remoteDraft) { _, remote in
-            if let remote, remote.key == DraftStore.key(for: nil) { text = remote.text }
-        }
-        .task(id: store.state == .connected) {
-            if let pulled = await store.pullDraft(DraftStore.key(for: nil)) { text = pulled }
-        }
-        .onChange(of: images.map(\.id)) { DraftStore.setImages(images, for: DraftStore.key(for: nil)) }
-        .task(id: "\(runtime) \(store.state == .connected)") { await store.loadTuning(runtime) }
-        .navigationTitle("New chat")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(Theme.background, for: .navigationBar)
-        .sheet(isPresented: $pickingFolder) {
-            FolderPickerSheet(selected: chosenFolder) { dir in
-                folder = dir
-                pickingFolder = false
-            }
-            .presentationDetents([.medium, .large])
-        }
     }
 
     private func start() {
+        guard !busy, store.state == .connected else { return }
         let message = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let photos = images
         let dir = chosenFolder
         let picked = tuning.map(tuningChoice.valid(in:)) ?? TuningChoice()
-        busy = true
+        var preview = ChatTimeline()
+        preview.appendUser(message, images: photos.map(\.jpeg))
+        pending = preview.messages.last
+        UIApplication.shared.dismissKeyboard()
         error = nil
         Task {
-            defer { busy = false }
             do {
                 let c = try await store.createConversation(
                     runtime: Runtime(rawValue: runtime) ?? .pi,
                     workspaceDir: dir.isEmpty ? nil : dir,
                     tuning: picked)
-                try await store.send(message, images: photos, to: c.id)
+                let chat = ChatModel(conversationId: c.id, store: store)
+                chat.sendFirst(message, photos: photos, store: store)
                 DraftStore.clear(DraftStore.key(for: nil))
-                await store.pushDraft(DraftStore.key(for: nil))
+                store.scheduleDraftPush(DraftStore.key(for: nil))
                 lastFolder = dir
-                onCreated(c)
+                onCreated(chat)
             } catch {
+                pending = nil
                 self.error = error.localizedDescription
             }
         }

@@ -12,6 +12,108 @@ final class MobileFlows: XCTestCase {
         app.launch()
     }
 
+    func testOfflineNewChatKeepsDraftUntilConnected() throws {
+        app.terminate()
+        let fixture = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        try #"{"offline":true,"host":{"macName":"Test Mac"},"conversations":[]}"#
+            .write(to: fixture, atomically: true, encoding: .utf8)
+        let connectedArguments = app.launchArguments
+        app.launchArguments = ["-demoList", fixture.path]
+        app.launch()
+        app.buttons["New chat"].tap()
+        let input = app.textViews.firstMatch
+        input.tap()
+        input.typeText("Keep this offline draft")
+        XCTAssertFalse(app.buttons["Send"].isEnabled)
+
+        app.terminate()
+        app.launchArguments = connectedArguments
+        app.launch()
+        app.buttons["New chat"].tap()
+        XCTAssertTrue((input.value as? String)?.contains("Keep this offline draft") == true)
+        XCTAssertTrue(app.buttons["Send"].isEnabled)
+        input.tap()
+        let count = (input.value as? String)?.count ?? 0
+        input.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: count))
+    }
+
+    func testReopenLastChatAndReturnToList() {
+        let row = app.buttons.containing(NSPredicate(format: "label CONTAINS %@", "Sample thread")).firstMatch
+        row.tap()
+        XCTAssertTrue(app.textViews.firstMatch.waitForExistence(timeout: 5))
+        app.terminate()
+        app.launch()
+        XCTAssertTrue(app.textViews.firstMatch.waitForExistence(timeout: 5))
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(row.waitForExistence(timeout: 5))
+        app.terminate()
+        app.launch()
+        XCTAssertTrue(row.waitForExistence(timeout: 5))
+    }
+
+    func testNewChatShowsQuestionBeforeCreationCompletes() throws {
+        try checkSentTurn(newChat: true)
+    }
+
+    func testFollowUpStartsAtTopOfLongHistory() throws {
+        try checkSentTurn(newChat: false)
+    }
+
+    private func checkSentTurn(newChat: Bool) throws {
+        let id = newChat ? "created" : "existing"
+        let conversation = ["id": id, "title": "Turn layout test", "workspaceDir": "/work"]
+        let history = (0..<36).map { ["role": "user", "content": "Earlier question \($0)"] }
+        let events: [[String: Any]] = [
+            ["type": "message_start", "message": ["role": "assistant"]],
+            ["type": "message_update", "assistantMessageEvent": ["type": "text_delta", "contentIndex": 0, "delta": "Reply below the question"]],
+        ]
+        let replies: [String: Any] = [
+            "conversations.create": ["delayMs": 4000, "result": conversation],
+            "conversations.get": ["result": ["conversation": conversation, "messages": history]],
+            "conversations.send": ["delayMs": 2500, "events": events.map {
+                ["type": "pi_event", "conversationId": id, "event": $0] as [String: Any]
+            }],
+        ]
+        let fixture = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        try JSONSerialization.data(withJSONObject: ["host": ["macName": "Test Mac"], "replies": replies,
+                                                    "conversations": newChat ? [] : [conversation]]).write(to: fixture)
+        app.terminate()
+        app.launchArguments = ["-demoList", fixture.path]
+        app.launch()
+        if newChat {
+            app.buttons["New chat"].tap()
+        } else {
+            app.buttons.containing(NSPredicate(format: "label CONTAINS %@", "Turn layout test")).firstMatch.tap()
+            XCTAssertTrue(app.staticTexts["Earlier question 35"].waitForExistence(timeout: 5))
+        }
+        let composer = app.textViews.firstMatch
+        composer.tap()
+        composer.typeText("Where is my question?")
+        let submitted = try XCTUnwrap(composer.value as? String)
+        app.buttons["Send"].tap()
+        let bubble = app.staticTexts.matching(NSPredicate(format: "label == %@", submitted)).firstMatch
+        XCTAssertTrue(bubble.waitForExistence(timeout: 1))
+        let top = app.navigationBars.firstMatch.frame.maxY
+        XCTAssertGreaterThanOrEqual(bubble.frame.minY, top - 3)
+        XCTAssertLessThan(bubble.frame.minY, top + 65)
+        let reply = app.staticTexts["Reply below the question"].firstMatch
+        XCTAssertTrue(reply.waitForExistence(timeout: 10))
+        XCTAssertLessThan(bubble.frame.minY, top + 65)
+        XCTAssertGreaterThan(reply.frame.minY, bubble.frame.maxY)
+        if !newChat {
+            composer.tap()
+            composer.typeText("Queued next question")
+            app.buttons["Send"].tap()
+            let queued = app.staticTexts["Queued next question"]
+            XCTAssertTrue(queued.waitForExistence(timeout: 2))
+            XCTAssertLessThan(queued.frame.minY, top + 65)
+            XCTAssertTrue(app.buttons["Steer"].isHittable)
+        }
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+    }
+
     func testArchiveRoundTrip() {
         let thread = app.buttons.containing(NSPredicate(format: "label CONTAINS %@", "Sample thread")).firstMatch
         XCTAssertTrue(thread.waitForExistence(timeout: 5))

@@ -50,6 +50,13 @@ import {
   writeDraft,
   writeDraftAttachments,
 } from "@/lib/draft-store";
+import {
+  INITIAL_PROMPT_HISTORY_NAV,
+  readPromptHistory,
+  recordPromptHistory,
+  stepPromptHistory,
+  type PromptHistoryNavState,
+} from "@/lib/prompt-history";
 import type {
   Automation,
   BackendId,
@@ -268,15 +275,43 @@ export function Composer({
     [],
   );
 
+  const historyNavRef = useRef<PromptHistoryNavState>(
+    INITIAL_PROMPT_HISTORY_NAV,
+  );
+
   // Write-through setter: every edit persists the draft under the current key so
   // it's already saved when the composer unmounts (view switch) or its key
   // changes (conversation switch). No-op persistence when no draftKey is wired.
   const updateText = useCallback(
     (v: string) => {
+      historyNavRef.current = INITIAL_PROMPT_HISTORY_NAV;
       setText(v);
       if (draftKey) writeDraft(draftKey, v);
     },
     [draftKey],
+  );
+
+  const stepHistory = useCallback(
+    (
+      direction: "up" | "down",
+      selectionStart: number,
+      selectionEnd: number,
+    ): number | null => {
+      const result = stepPromptHistory({
+        direction,
+        state: historyNavRef.current,
+        entries: readPromptHistory(),
+        text,
+        selectionStart,
+        selectionEnd,
+      });
+      if (!result) return null;
+      historyNavRef.current = result.nextState;
+      setText(result.nextText);
+      if (draftKey) writeDraft(draftKey, result.nextText);
+      return result.caret;
+    },
+    [draftKey, text],
   );
 
   // The conversation/view switched while this composer stayed mounted (e.g. the
@@ -286,6 +321,7 @@ export function Composer({
   useEffect(() => {
     if (draftKeyRef.current === draftKey) return;
     draftKeyRef.current = draftKey;
+    historyNavRef.current = INITIAL_PROMPT_HISTORY_NAV;
     setPreviewImage(null);
     setText(draftKey ? readDraft(draftKey) : "");
     setQuote(draftKey ? readDraft(quoteKey(draftKey)) : "");
@@ -296,7 +332,13 @@ export function Composer({
   }, [draftKey, restoreAttachments]);
   // The same chat's draft edited on the phone.
   useEffect(
-    () => (draftKey ? subscribeDraft(draftKey, setText) : undefined),
+    () =>
+      draftKey
+        ? subscribeDraft(draftKey, (v) => {
+            historyNavRef.current = INITIAL_PROMPT_HISTORY_NAV;
+            setText(v);
+          })
+        : undefined,
     [draftKey],
   );
   const [attachments, setAttachments] = useState<ComposerAttachment[]>(() =>
@@ -1370,6 +1412,7 @@ export function Composer({
     // bypass the agent entirely. An empty command (`!` alone) is a no-op.
     if (bashMode) {
       if (!bashCommand || !onBash) return;
+      recordPromptHistory(text);
       onBash(bashCommand);
       closeSlash();
       updateText("");
@@ -1482,6 +1525,7 @@ export function Composer({
             : (pendingCliEffort ?? ""),
         }
       : undefined;
+    if (trimmedText) recordPromptHistory(trimmedText);
     if (streaming && onQueue) onQueue(outgoing, attachments, runtime);
     else onSend(outgoing, attachments, runtime);
     setPreviewImage(null);
@@ -1528,6 +1572,7 @@ export function Composer({
     slashStart,
     text,
     updateText,
+    stepHistory,
     taRef,
     slashSuppress,
     setSlashOpen,

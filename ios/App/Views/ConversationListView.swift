@@ -9,6 +9,7 @@ enum Route: Hashable {
 /// The home screen: chats grouped by folder, exactly like the Mac sidebar.
 struct ConversationListView: View {
     @Environment(RemoteStore.self) private var store
+    @State private var createdChat: ChatModel?
     @State private var path: [Route] = []
     @State private var pairing = false
     @State private var showUsage = false
@@ -51,17 +52,35 @@ struct ConversationListView: View {
             .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(for: Route.self) { route in
                 switch route {
-                case .chat(let id): ChatView(conversationId: id)
+                case .chat(let id): ChatView(conversationId: id, initialModel: createdChat?.conversationId == id ? createdChat : nil)
                 case .newChat(let folder):
-                    NewChatView(initialFolder: folder) { c in
+                    NewChatView(initialFolder: folder) { chat in
                         guard path.last == .newChat(folder: folder) else { return }
+                        store.activeChat = chat
+                        createdChat = chat
                         path.removeLast()
-                        path.append(.chat(c.id))
+                        path.append(.chat(chat.conversationId))
                     }
                 }
             }
         }
         .tint(Theme.text)
+        .onAppear {
+            if path.isEmpty, let host = store.selectedHostId,
+               let openChatId = UserDefaults.standard.string(forKey: "openChat.\(host)"),
+               store.conversations.contains(where: { $0.id == openChatId }) {
+                path = [.chat(openChatId)]
+            }
+        }
+        .onChange(of: path) { _, routes in
+            if let createdChat, routes.last != .chat(createdChat.conversationId) { self.createdChat = nil }
+            guard let host = store.selectedHostId else { return }
+            if case .chat(let id) = routes.last {
+                UserDefaults.standard.set(id, forKey: "openChat.\(host)")
+            } else {
+                UserDefaults.standard.removeObject(forKey: "openChat.\(host)")
+            }
+        }
         #if DEBUG
         .onChange(of: store.conversations.isEmpty, initial: true) { _, empty in
             if !empty, path.isEmpty, let id = UserDefaults.standard.string(forKey: "openChat") {
@@ -95,7 +114,6 @@ struct ConversationListView: View {
             ActionRow(title: "New chat", systemImage: "plus") {
                 path.append(.newChat(folder: nil))
             }
-            .disabled(store.state != .connected)
             ActionRow(title: store.showArchived ? "Back to chats" : "Archived", systemImage: store.showArchived ? "arrow.uturn.backward" : "archivebox") {
                 store.showArchived.toggle()
             }

@@ -50,7 +50,7 @@ public struct ChatTimeline: Sendable {
 
     public enum Effect { case none, refetch }
 
-    public init(snapshot: JSON) {
+    public init(snapshot: JSON, cached: Bool = false) {
         controls = (snapshot["pendingControls"].array ?? []).map(ControlRequest.init)
         running = snapshot["conversation"]["runState"].string == "running"
         var results: [String: JSON] = [:]
@@ -86,6 +86,12 @@ public struct ChatTimeline: Sendable {
         // turn ends, so the Mac sends its stream events to replay.
         for e in snapshot["liveEvents"].array ?? [] { _ = apply(e) }
         liveSeq = snapshot["liveSeq"].int ?? 0
+        if cached {
+            running = false
+            turnStartedAt = nil
+            compacting = nil
+            controls = []
+        }
     }
 
     private mutating func newId() -> Int {

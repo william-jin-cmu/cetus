@@ -171,6 +171,14 @@ public actor RemoteConnection {
         let id = nextId
         nextId += 1
         let body: JSON = ["id": .number(Double(id)), "method": .string(method), "params": params]
+        // A WebSocket can remain open after the peer stops responding. Bound
+        // the RPC wait, including hello, which gates the reconnection loop.
+        let deadline = Task {
+            try await Task.sleep(for: .seconds(method == "hello" ? 15 : 120))
+            guard pending[id] != nil else { return }
+            terminate(.timeout)
+        }
+        defer { deadline.cancel() }
         return try await withCheckedThrowingContinuation { cont in
             pending[id] = cont
             do {
@@ -186,8 +194,12 @@ public actor RemoteConnection {
     }
 
     public func close() {
-        task?.cancel(with: .normalClosure, reason: nil)
-        finish(.closed)
+        terminate(.closed)
+    }
+
+    private func terminate(_ reason: RemoteError) {
+        task?.cancel(with: .goingAway, reason: nil)
+        finish(reason)
     }
 
     /// Encrypts every chunk of a message in one go (no suspension point), then
@@ -207,7 +219,9 @@ public actor RemoteConnection {
         } while offset < bytes.count
         send = cipher
         for frame in frames {
-            task.send(.data(frame)) { _ in }
+            task.send(.data(frame)) { [weak self] error in
+                if error != nil { Task { await self?.terminate(.closed) } }
+            }
         }
     }
 

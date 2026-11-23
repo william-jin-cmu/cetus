@@ -1,5 +1,6 @@
 import CetusRemoteKit
 import CryptoKit
+import Network
 import Observation
 import SwiftUI
 import UIKit
@@ -130,6 +131,9 @@ final class RemoteStore {
     @ObservationIgnored var draftPushes: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var prefetchTask: Task<Void, Never>?
 
+    @ObservationIgnored private let networkMonitor = NWPathMonitor()
+    private var hadNetwork: Bool?
+    private var limitPrefetch = false
     private var connection: RemoteConnection?
     private var eventTask: Task<Void, Never>?
     private var retryTask: Task<Void, Never>?
@@ -145,12 +149,14 @@ final class RemoteStore {
     #if DEBUG
     /// `-demoList <file>`: a fake paired Mac with a canned chat list, sidebar
     /// and model catalog, for screenshots without a Mac.
+    private var demoReplies: [String: JSON] = [:]
     let demoList = UserDefaults.standard.string(forKey: "demoList")
     #endif
 
     init() {
         #if DEBUG
         if let path = demoList, let data = FileManager.default.contents(atPath: path), let j = try? JSON.parse(data) {
+            demoReplies = j["replies"].object ?? [:]
             let name = j["host"]["macName"].string ?? "Mac"
             let raw = #"{"sid":"demo","publicKey":"","relay":"","macName":"\#(name)","deviceToken":"","pairedAt":0}"#
             hosts = (try? JSONDecoder().decode(PairedHost.self, from: Data(raw.utf8))).map { [$0] } ?? []
@@ -158,7 +164,7 @@ final class RemoteStore {
             applySidebar(j["sidebar"])
             applyConversations(j["conversations"])
             for (k, v) in j["tunings"].object ?? [:] { tunings[k] = RuntimeTuning(v) }
-            state = .connected
+            state = j["offline"].bool == true ? .failed("No connection") : .connected
             return
         }
         #endif
@@ -168,6 +174,21 @@ final class RemoteStore {
         let saved = UserDefaults.standard.string(forKey: "selectedHost")
         selectedHostId = hosts.first { $0.sid == saved }?.sid ?? hosts.first?.sid
         restoreCached()
+        networkMonitor.pathUpdateHandler = { [weak self] path in
+            Task { @MainActor in self?.networkChanged(path) }
+        }
+        networkMonitor.start(queue: DispatchQueue(label: "dev.cetus.mobile.network"))
+    }
+
+    deinit { networkMonitor.cancel() }
+
+    private func networkChanged(_ path: NWPath) {
+        let available = path.status == .satisfied
+        let recovered = hadNetwork == false && available
+        hadNetwork = available
+        limitPrefetch = !available || path.isConstrained || path.isExpensive
+        if limitPrefetch { prefetchTask?.cancel() }
+        if recovered, state != .unpaired { reconnect() }
     }
 
     /// Draw the selected Mac's chat list as last seen; the Mac's answer
@@ -208,6 +229,7 @@ final class RemoteStore {
         hosts.removeAll { $0.sid == host.sid }
         saveHosts()
         SnapshotCache.forget(host: host.sid)
+        UserDefaults.standard.removeObject(forKey: "openChat.\(host.sid)")
         if selectedHostId == host.sid {
             selectedHostId = hosts.first?.sid
             if hosts.isEmpty { disconnect(); state = .idle; conversations = [] }
@@ -235,6 +257,7 @@ final class RemoteStore {
     }
 
     private func disconnect() {
+        prefetchTask?.cancel()
         iconTask?.cancel()
         retryTask?.cancel()
         eventTask?.cancel()
@@ -261,12 +284,13 @@ final class RemoteStore {
                 for await e in c.events { self?.handle(e) }
                 await self?.connectionDropped(c)
             }
-            await refreshList()
-            await activeChat?.load()
+            await refreshAfterConnect()
         } catch RemoteError.unpaired {
+            await c.close()
             guard !Task.isCancelled, host.sid == selectedHostId else { return }
             state = .unpaired
         } catch {
+            await c.close()
             guard !Task.isCancelled else { return }
             state = .failed(error.localizedDescription)
             scheduleRetry()
@@ -293,11 +317,24 @@ final class RemoteStore {
     }
 
     func request(_ method: String, _ params: JSON = [:]) async throws -> JSON {
+        #if DEBUG
+        if let reply = demoReplies[method] {
+            try await Task.sleep(for: .milliseconds(reply["delayMs"].int ?? 0))
+            for event in reply["events"].array ?? [] { handle(event) }
+            return reply["result"]
+        }
+        #endif
         guard let connection else { throw RemoteError.closed }
         return try await connection.request(method, params)
     }
 
     // MARK: Conversations
+
+    private func refreshAfterConnect() async {
+        async let list: Void = refreshList()
+        await activeChat?.load()
+        await list
+    }
 
     func refreshList() async {
         async let layout: Void = refreshSidebar()
@@ -454,7 +491,7 @@ final class RemoteStore {
     /// draws from the cache. Running chats are skipped: their snapshot is
     /// outdated within seconds, and the open turn isn't cached anyway.
     private func prefetchChats() {
-        guard let host = selectedHostId else { return }
+        guard !limitPrefetch, let host = selectedHostId else { return }
         let wanted = conversations
             .filter { !running.contains($0.id) && !$0.archived }
             .sorted { $0.updatedAt > $1.updatedAt }
@@ -562,7 +599,9 @@ final class RemoteStore {
         if let workspaceDir { params["workspaceDir"] = .string(workspaceDir) }
         let r = try await request("conversations.create", .object(params))
         guard let c = Conversation(r) else { throw RemoteError.server("Couldn't create the chat.") }
-        await refreshList()
+        if c.archived == showArchived, !conversations.contains(where: { $0.id == c.id }) {
+            conversations.insert(c, at: 0)
+        }
         return c
     }
 
@@ -594,10 +633,7 @@ final class RemoteStore {
         case "conversation_deleted":
             conversations.removeAll { $0.id == envelope["id"].string }
         case "resync":
-            Task {
-                await refreshList()
-                await activeChat?.load()
-            }
+            Task { await refreshAfterConnect() }
         case "pi_error":
             // The runtime's own complaint about the run on screen.
             if let id = envelope["conversationId"].string, activeChat?.conversationId == id,

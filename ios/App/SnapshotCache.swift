@@ -36,17 +36,13 @@ enum SnapshotCache {
         return await Task.detached(priority: .userInitiated) { read(url) }.value
     }
 
-    /// The open turn's live events are dropped: a cached copy of a run that
-    /// has since ended would show it still working.
+    /// CLI chats may carry the entire current turn in liveEvents until it
+    /// finishes. Keep those messages for the next offline open.
     static func saveChat(_ snapshot: JSON, host: String, id: String) {
-        guard var o = snapshot.object else { return }
-        o["liveEvents"] = nil
-        o["liveSeq"] = nil
         let url = chatFile(host, id)
         let dir = url.deletingLastPathComponent()
-        let value = JSON.object(o)
         Task.detached(priority: .utility) {
-            write(value, to: url)
+            write(snapshot, to: url)
             prune(dir)
         }
     }

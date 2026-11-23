@@ -25,6 +25,12 @@ struct ComposerBar<Chip: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
+            if !connected {
+                Label("Draft stays on this iPhone. Reconnect to send.", systemImage: "wifi.slash")
+                    .font(.caption)
+                    .foregroundStyle(Theme.muted)
+                    .padding(.horizontal, 6)
+            }
             if !images.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
@@ -66,7 +72,7 @@ struct ComposerBar<Chip: View>: View {
                 .accessibilityLabel("Attach photos")
                 chip
                 Spacer(minLength: 4)
-                if running && !canSend {
+                if running && !canSend && !busy {
                     Button {
                         sends += 1
                         onStop()
