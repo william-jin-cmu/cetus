@@ -10,6 +10,13 @@ import {
   Video,
 } from "lucide-react";
 import { TextFileEditor } from "./text-file-editor";
+import { isSpreadsheetExt, SpreadsheetPreview } from "./spreadsheet-preview";
+import {
+  DocxPreview,
+  isPresentationExt,
+  isWordExt,
+  PptxPreview,
+} from "./document-preview";
 import { Spinner } from "@/components/ui/spinner";
 import { convertFileSrc } from "@/lib/host/core";
 import ReactMarkdown from "react-markdown";
@@ -246,8 +253,12 @@ export function FilePreview({
               )
             }
           </TextPreview>
-        ) : kind === "office" && canPreviewOffice(ext) ? (
-          <OfficePreview file={file} assetUrl={assetUrl} ext={ext} />
+        ) : kind === "office" && isSpreadsheetExt(ext) ? (
+          <SpreadsheetPreview url={assetUrl} />
+        ) : kind === "office" && isWordExt(ext) ? (
+          <DocxPreview url={assetUrl} title={file.name} />
+        ) : kind === "office" && isPresentationExt(ext) ? (
+          <PptxPreview url={assetUrl} />
         ) : (
           <FileDetails file={file} ext={ext} kind={kind} />
         )}
@@ -320,134 +331,6 @@ function CsvPreview({ text }: { text: string }) {
                     className="max-w-64 border-b border-r border-border px-2 py-1 align-top"
                   >
                     <span className="line-clamp-3 break-words">{cell}</span>
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
-function OfficePreview({
-  file,
-  assetUrl,
-  ext,
-}: {
-  file: WorkspaceFileEntry;
-  assetUrl: string;
-  ext: string;
-}) {
-  const { t } = useTranslation("chat");
-  const [docHtml, setDocHtml] = useState<string | null>(null);
-  const [sheetRows, setSheetRows] = useState<string[][] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let alive = true;
-    setDocHtml(null);
-    setSheetRows(null);
-    setError(null);
-    fetch(assetUrl)
-      .then((response) => {
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        return response.arrayBuffer();
-      })
-      .then(async (buffer) => {
-        if (isWordExt(ext)) {
-          // mammoth/xlsx are ~2MB combined; load them only when an Office file is previewed.
-          const { default: mammoth } = await import("mammoth");
-          const result = await mammoth.convertToHtml({ arrayBuffer: buffer });
-          if (alive) setDocHtml(result.value);
-          return;
-        }
-        const XLSX = await import("xlsx");
-        const workbook = XLSX.read(buffer, { type: "array" });
-        const firstSheetName = workbook.SheetNames[0];
-        const firstSheet = firstSheetName
-          ? workbook.Sheets[firstSheetName]
-          : null;
-        const rows = firstSheet
-          ? (XLSX.utils.sheet_to_json(firstSheet, {
-              header: 1,
-              blankrows: false,
-              defval: "",
-            }) as unknown[][])
-          : [];
-        if (alive)
-          setSheetRows(
-            rows.slice(0, 120).map((row) => row.slice(0, 32).map(String)),
-          );
-      })
-      .catch((err) => {
-        if (alive) setError(String(err));
-      });
-    return () => {
-      alive = false;
-    };
-  }, [assetUrl, ext]);
-
-  if (error) {
-    return (
-      <div className="p-5">
-        <p className="mb-4 text-xs text-destructive">
-          {t("artifact.readFailed", { error })}
-        </p>
-        <FileDetails file={file} ext={ext} kind="office" />
-      </div>
-    );
-  }
-
-  if (isWordExt(ext)) {
-    if (docHtml == null) return <OfficeLoading />;
-    return (
-      <iframe
-        title={file.name}
-        sandbox=""
-        className="h-full min-h-[520px] w-full bg-white"
-        srcDoc={`<!doctype html><html><head><meta charset="utf-8"><style>body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.5;padding:24px;color:#1f2328}img{max-width:100%;height:auto}table{border-collapse:collapse}td,th{border:1px solid #d0d7de;padding:4px 6px}</style></head><body>${docHtml}</body></html>`}
-      />
-    );
-  }
-
-  if (sheetRows == null) return <OfficeLoading />;
-  return <SheetPreview rows={sheetRows} />;
-}
-
-function OfficeLoading() {
-  const { t } = useTranslation("chat");
-  return (
-    <div className="flex items-center gap-2 px-5 py-4 text-xs text-muted-foreground">
-      <Spinner className="size-3.5" />
-      {t("artifact.loading")}
-    </div>
-  );
-}
-
-function SheetPreview({ rows }: { rows: string[][] }) {
-  if (rows.length === 0) {
-    return <p className="px-5 py-4 text-xs text-muted-foreground">No rows</p>;
-  }
-  return (
-    <div className="p-4">
-      <div className="overflow-auto rounded-md border border-border">
-        <table className="w-full border-collapse text-xs">
-          <tbody>
-            {rows.map((row, rowIndex) => (
-              <tr
-                key={rowIndex}
-                className={
-                  rowIndex === 0 ? "bg-muted/70 font-medium" : undefined
-                }
-              >
-                {row.map((cell, cellIndex) => (
-                  <td
-                    key={cellIndex}
-                    className="max-w-64 border-b border-r border-border px-2 py-1 align-top"
-                  >
-                    <span className="line-clamp-4 break-words">{cell}</span>
                   </td>
                 ))}
               </tr>
@@ -552,6 +435,9 @@ function previewKind(name: string): PreviewKind {
       "docx",
       "xls",
       "xlsx",
+      "xlsm",
+      "xlsb",
+      "ods",
       "ppt",
       "pptx",
       "numbers",
@@ -582,18 +468,6 @@ function needsText(
     kind === "csv" ||
     (mode === "source" && canToggleSource(kind, ext))
   );
-}
-
-function canPreviewOffice(ext: string): boolean {
-  return isWordExt(ext) || isSpreadsheetExt(ext);
-}
-
-function isWordExt(ext: string): boolean {
-  return ext === "docx";
-}
-
-function isSpreadsheetExt(ext: string): boolean {
-  return ext === "xlsx" || ext === "xls";
 }
 
 function parseCsvPreview(text: string): string[][] {

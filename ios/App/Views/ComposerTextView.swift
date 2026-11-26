@@ -9,13 +9,15 @@ struct ComposerTextView: UIViewRepresentable {
     var placeholder: String
     var onPasteImages: ([UIImage]) -> Void
 
-    private static let font = UIFont.systemFont(ofSize: 15)
+    /// Body size, like the transcript; follows the system text size.
+    private static var font: UIFont { .preferredFont(forTextStyle: .body) }
     private static let maxLines: CGFloat = 8
 
     func makeUIView(context: Context) -> PasteTextView {
         let v = PasteTextView()
         v.delegate = context.coordinator
         v.font = Self.font
+        v.adjustsFontForContentSizeCategory = true
         v.textColor = UIColor(Theme.text)
         v.tintColor = UIColor(Theme.accent)
         v.backgroundColor = .clear
@@ -26,6 +28,7 @@ struct ComposerTextView: UIViewRepresentable {
         v.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         v.placeholderLabel.text = placeholder
         v.placeholderLabel.font = Self.font
+        v.placeholderLabel.adjustsFontForContentSizeCategory = true
         v.placeholderLabel.textColor = UIColor(Theme.faint)
         v.onPasteImages = onPasteImages
         return v

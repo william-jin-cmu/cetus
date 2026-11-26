@@ -47,6 +47,17 @@ describe("runtime-independent folding", () => {
     expect(segments.filter((s) => s.type === "answer").map((s) => s.block)).toContain(blocks[5]);
   });
 
+  test("a file sent twice in one turn keeps only its last card", () => {
+    const zip = (id, sizeBytes) => tool(id, { result: { content: [], isError: false, details: { artifacts: { kind: "artifact", path: "/tmp/site.zip", sizeBytes } } } });
+    const both = tool("both", { result: { content: [], isError: false, details: { kind: "artifact_collection", artifacts: [
+      { kind: "artifact", path: "/tmp/site.zip" }, { kind: "artifact", path: "/tmp/shot.png" },
+    ] } } });
+    const answers = (blocks) => build(blocks).filter((s) => s.type === "answer").map((s) => s.block.id ?? s.block.text);
+    expect(answers([zip("first", 1), text("Rebuilt"), zip("second", 2), text("Done")])).toEqual(["Rebuilt", "second", "Done"]);
+    // A collection with a file not sent again stays whole.
+    expect(answers([both, zip("again", 3), text("Done")])).toEqual(["both", "again", "Done"]);
+  });
+
   test("tool-only turns fold into one collapsed group", () => {
     const segments = build([tool("a"), tool("b")]);
     expect(segments).toHaveLength(1);

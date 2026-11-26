@@ -12,6 +12,7 @@ import {
   Archive,
   ArchiveRestore,
   Clock,
+  Copy,
   Cpu,
   Folder,
   Gauge,
@@ -590,6 +591,14 @@ export const ConversationRow = memo(function ConversationRow({
           <DropdownMenuItem onSelect={startRename}>
             <Pencil />
             <span>{t("action.rename")}</span>
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onSelect={() => {
+              void navigator.clipboard.writeText(title);
+            }}
+          >
+            <Copy />
+            <span>{t("action.copyName")}</span>
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

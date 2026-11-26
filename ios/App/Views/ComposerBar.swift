@@ -18,6 +18,7 @@ struct ComposerBar<Chip: View>: View {
     @State private var picked: [PhotosPickerItem] = []
     @State private var sends = 0
     @State private var focused = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var canSend: Bool {
         connected && !busy && (!text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !images.isEmpty)
@@ -108,19 +109,23 @@ struct ComposerBar<Chip: View>: View {
                         .foregroundStyle(.white)
                         .frame(width: 36, height: 36)
                         .background(canSend || busy ? Theme.accent : Theme.faint.opacity(0.45), in: Circle())
+                        // Wakes up with a small pop once there is something to send.
+                        .scaleEffect(canSend || busy ? 1 : 0.9)
+                        .animation(reduceMotion ? nil : Theme.spring, value: canSend)
                     }
+                    .buttonStyle(PressScaleStyle())
                     .accessibilityLabel("Send")
                     .disabled(!canSend)
                 }
             }
         }
+        // 10 pt around the 36 pt send disc, so its curve runs parallel to
+        // the box's 28 pt corner.
         .padding(.leading, 10)
-        .padding(.trailing, 6)
-        .padding(.top, 10)
-        .padding(.bottom, 6)
-        .background(Theme.surface, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).strokeBorder(Theme.borderAccent, lineWidth: 1))
-        .shadow(color: .black.opacity(0.06), radius: 6, y: 2)
+        .padding(.trailing, 10)
+        .padding(.top, 12)
+        .padding(.bottom, 10)
+        .composerSurface()
         .contentShape(Rectangle())
         .onTapGesture { focused = true }
         // Swipe the box down to put the keyboard away.
@@ -297,5 +302,21 @@ extension Runtime {
         }
         // The DeepSeek whale is black line art: let the menu tint it.
         return id == Runtime.dsh.rawValue ? r.withRenderingMode(.alwaysTemplate) : r.withRenderingMode(.alwaysOriginal)
+    }
+}
+
+private extension View {
+    /// Liquid Glass on iOS 26, so the transcript shows through as it
+    /// scrolls under the box; the flat raised card before that.
+    @ViewBuilder
+    func composerSurface() -> some View {
+        let shape = RoundedRectangle(cornerRadius: 28, style: .continuous)
+        if #available(iOS 26, *) {
+            glassEffect(.regular.interactive(), in: shape)
+        } else {
+            background(Theme.surface, in: shape)
+                .overlay(shape.strokeBorder(Theme.borderAccent, lineWidth: 1))
+                .shadow(color: .black.opacity(0.06), radius: 6, y: 2)
+        }
     }
 }

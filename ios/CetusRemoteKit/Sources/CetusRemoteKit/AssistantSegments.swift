@@ -67,7 +67,7 @@ extension ChatTimeline {
     /// (settled: everything before the last text run). Every run starts
     /// collapsed.
     static func segments(_ all: [ChatBlock], live: Bool, finalAnswers: Set<Int> = []) -> [AssistantSegment] {
-        let flat = all.filter { b in
+        let flat = dropResentArtifacts(all).filter { b in
             switch b {
             // Empty blocks (including the placeholders streaming deltas pad
             // with) render nothing but would still take a row of spacing.
@@ -114,6 +114,23 @@ extension ChatTimeline {
             out.append(.activity(key: first.foldKey, steps: steps, trailing: true))
         }
         return out
+    }
+}
+
+extension ChatTimeline {
+    /// A file delivered again later in the same turn (a rebuilt zip, or a
+    /// generated image the runtime already showed that the agent then also
+    /// sends with `cetus artifact`) keeps only its last card.
+    static func dropResentArtifacts(_ blocks: [ChatBlock]) -> [ChatBlock] {
+        var later = Set<String>()
+        var keep = [Bool](repeating: true, count: blocks.count)
+        for i in blocks.indices.reversed() {
+            let paths = blocks[i].artifacts.map(\.path)
+            guard !paths.isEmpty else { continue }
+            if paths.allSatisfy(later.contains) { keep[i] = false }
+            later.formUnion(paths)
+        }
+        return zip(blocks, keep).filter(\.1).map(\.0)
     }
 }
 

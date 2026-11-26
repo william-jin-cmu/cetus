@@ -69,9 +69,7 @@ struct NewChatView: View {
                     }
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.bottom, 6)
-            .background(Theme.background)
+            .composerDock()
         }
         .disabled(busy)
         .onChange(of: runtime, initial: true) { tuningChoice = .load(runtime) }

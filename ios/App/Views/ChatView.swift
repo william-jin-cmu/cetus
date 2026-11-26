@@ -32,6 +32,7 @@ struct ChatView: View {
 }
 
 private struct ChatContent: View {
+    @Environment(\.dismiss) private var dismiss
     @Environment(RemoteStore.self) private var store
     @Bindable var model: ChatModel
     @State private var renaming = false
@@ -57,7 +58,7 @@ private struct ChatContent: View {
         ScrollViewReader { proxy in
             GeometryReader { viewport in
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 18) {
+                    LazyVStack(alignment: .leading, spacing: 24) {
                         if model.timeline.truncated {
                             Text("Showing recent messages. Earlier ones are on your Mac.")
                                 .font(.caption)
@@ -77,17 +78,14 @@ private struct ChatContent: View {
                         }) : nil
                         let split = start ?? items.endIndex
                         ForEach(items[..<split]) { item in row(item) }
-                        VStack(alignment: .leading, spacing: 18) {
+                        VStack(alignment: .leading, spacing: 24) {
                             ForEach(items[split...]) { item in row(item) }
                             // Between the send and the first block of the reply; an
                             // open turn carries the line itself.
                             if model.sending, !(items.last?.isActiveTurn ?? false) {
                                 ProgressView("Sending…").font(.caption).foregroundStyle(Theme.muted)
                             } else if model.loaded, model.running, !(items.last?.isActiveTurn ?? false) {
-                                VStack(alignment: .leading, spacing: 8) {
-                                    AssistantLabel()
-                                    WorkingIndicator(startedAt: model.turnStartedAt)
-                                }
+                                WorkingIndicator(startedAt: model.turnStartedAt)
                             }
                             if let error = model.error {
                                 MessageErrorRow(
@@ -134,9 +132,7 @@ private struct ChatContent: View {
                                 .font(.system(size: 14, weight: .semibold))
                                 .foregroundStyle(Theme.text)
                                 .frame(width: 36, height: 36)
-                                .background(Theme.surface, in: Circle())
-                                .overlay(Circle().strokeBorder(Theme.borderAccent, lineWidth: 1))
-                                .shadow(color: .black.opacity(0.12), radius: 6, y: 2)
+                                .floatingCircle()
                         }
                         .padding(.bottom, 10)
                         .transition(.opacity.combined(with: .scale(scale: 0.8)))
@@ -210,10 +206,7 @@ private struct ChatContent: View {
                         }
                     }
                 }
-                .padding(.horizontal, 12)
-                .padding(.top, 6)
-                .padding(.bottom, 6)
-                .background(Theme.background)
+                .composerDock()
             }
         }
         .task(id: "\(model.conversation?.backend ?? "") \(store.state == .connected)") {
@@ -225,7 +218,7 @@ private struct ChatContent: View {
             ToolbarItem(placement: .principal) {
                 VStack(spacing: 1) {
                     Text(model.conversation?.displayTitle ?? "Chat")
-                        .font(.subheadline.weight(.semibold))
+                        .font(.headline)
                         .foregroundStyle(Theme.text)
                         .lineLimit(1)
                     if let c = model.conversation {
@@ -239,7 +232,7 @@ private struct ChatContent: View {
                                 Text(store.state == .connecting ? "Connecting…" : "Offline")
                             }
                         }
-                        .font(.caption)
+                        .font(Theme.meta)
                         .foregroundStyle(Theme.muted)
                         .lineLimit(1)
                     }
@@ -258,7 +251,12 @@ private struct ChatContent: View {
                     }
                     if let c = model.conversation {
                         Button(c.archived ? "Unarchive" : "Archive", systemImage: "archivebox") {
-                            Task { try? await store.update(c.id, ["archived": .bool(!c.archived)]) }
+                            let archiving = !c.archived
+                            Task {
+                                guard (try? await store.update(c.id, ["archived": .bool(archiving)])) != nil else { return }
+                                // An archived chat leaves the list; go back to it.
+                                if archiving { dismiss() }
+                            }
                         }
                     }
                     if model.running {
@@ -397,13 +395,13 @@ struct UserBubble: View {
                 if !text.isEmpty {
                     Text(text)
                         .font(Theme.content)
-                        .lineSpacing(2)
+                        .lineSpacing(Theme.contentLeading)
                         .foregroundStyle(Theme.text)
                         .textSelection(.enabled)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 11)
                         .background(Theme.raised, in: UnevenRoundedRectangle(
-                            topLeadingRadius: 18, bottomLeadingRadius: 18, bottomTrailingRadius: 18, topTrailingRadius: 4,
+                            topLeadingRadius: 20, bottomLeadingRadius: 20, bottomTrailingRadius: 20, topTrailingRadius: 6,
                             style: .continuous))
                 }
             }
@@ -419,8 +417,7 @@ private struct AssistantTurnView: View {
     @Binding var expanded: Set<String>
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            AssistantLabel()
+        VStack(alignment: .leading, spacing: 12) {
             ForEach(turn.segments) { seg in
                 switch seg {
                 case .activity(let key, let steps, let trailing):
@@ -439,17 +436,26 @@ private struct AssistantTurnView: View {
                         )
                     }
                 case .answer(let block):
-                    StepView(block: block, active: turn.active, expanded: $expanded)
+                    if case .text(_, let text, _) = block {
+                        AssistantBubble(text: text)
+                    } else {
+                        StepView(block: block, active: turn.active, expanded: $expanded)
+                    }
                 }
             }
             if turn.active {
                 WorkingIndicator(startedAt: startedAt)
             }
-            if !turn.active, !answerText.isEmpty {
-                CopyButton(text: answerText)
-            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        .contextMenu {
+            if !turn.active, !answerText.isEmpty {
+                Button("Copy Reply", systemImage: "doc.on.doc") {
+                    UIPasteboard.general.string = answerText
+                }
+            }
+        }
     }
 
     private var answerText: String {
@@ -462,39 +468,30 @@ private struct AssistantTurnView: View {
     }
 }
 
-/// The small caps line that heads every reply, as on the desktop.
-struct AssistantLabel: View {
+/// A reply's prose in a light bubble, the user bubble mirrored: its tight
+/// corner points back at the sender.
+private struct AssistantBubble: View {
+    let text: String
+
     var body: some View {
-        Text("ASSISTANT")
-            .font(.system(size: 11, weight: .medium))
-            .kerning(0.6)
-            .foregroundStyle(Theme.muted)
+        HStack(spacing: 0) {
+            MarkdownText(text: text)
+                .environment(\.onBubble, true)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .background(Theme.surface, in: UnevenRoundedRectangle(
+                    topLeadingRadius: 6, bottomLeadingRadius: 20, bottomTrailingRadius: 20, topTrailingRadius: 20,
+                    style: .continuous))
+            // The same gutter the user bubble keeps on its left.
+            Spacer(minLength: 48)
+        }
     }
 }
 
-private struct CopyButton: View {
-    let text: String
-    @State private var copied = false
-
-    var body: some View {
-        Button {
-            UIPasteboard.general.string = text
-            copied = true
-            Task {
-                try? await Task.sleep(for: .seconds(1.5))
-                copied = false
-            }
-        } label: {
-            Image(systemName: copied ? "checkmark" : "doc.on.doc")
-                .font(.system(size: 13))
-                .foregroundStyle(Theme.faint)
-                .frame(width: 32, height: 28, alignment: .leading)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .sensoryFeedback(.success, trigger: copied) { _, now in now }
-        .accessibilityLabel(copied ? "Copied" : "Copy reply")
-    }
+extension EnvironmentValues {
+    /// Inside a gray bubble, insets (code, table headers) flip to the page
+    /// color so they still read as boxes.
+    @Entry var onBubble = false
 }
 
 /// Light Markdown: fenced code and pipe tables as horizontally scrolling
@@ -505,6 +502,7 @@ struct MarkdownText: View {
     var color: Color = Theme.text
     /// Documents size headings by level; chat replies keep them compact.
     var headings = false
+    @Environment(\.onBubble) private var onBubble
 
     private enum Part: Hashable {
         case prose(String)
@@ -574,28 +572,29 @@ struct MarkdownText: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 14) {
             ForEach(Array(parts.enumerated()), id: \.offset) { _, part in
                 switch part {
                 case .prose(let s):
                     Text(Self.render(s, headings: headings))
                         .font(Theme.content)
                         .foregroundStyle(color)
-                        .lineSpacing(4)
+                        .lineSpacing(Theme.contentLeading)
                         .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                        // In a bubble, prose hugs its lines so the bubble can too.
+                        .frame(maxWidth: onBubble ? nil : .infinity, alignment: .leading)
                 case .code(let s, let language):
                     ScrollView(.horizontal, showsIndicators: false) {
                         Text(SyntaxHighlighter.attributed(s, language: language))
-                            .font(.system(size: 13, design: .monospaced))
+                            .font(Theme.code)
                             .foregroundStyle(Theme.text)
                             .textSelection(.enabled)
                             .fixedSize()
                             .padding(12)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Theme.surface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .background(onBubble ? Theme.background : Theme.surface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 case .table(let rows):
                     TableBox(rows: rows)
                 case .rule:
@@ -646,6 +645,7 @@ struct MarkdownText: View {
 /// A Markdown pipe table, first row as the header.
 private struct TableBox: View {
     let rows: [[String]]
+    @Environment(\.onBubble) private var onBubble
 
     private static let maxColumn: CGFloat = 240
 
@@ -662,7 +662,7 @@ private struct TableBox: View {
             var widest: CGFloat = 0
             for (r, row) in rows.enumerated() where c < row.count {
                 let plain = String(cellText(row[c]).characters)
-                let font = UIFont.systemFont(ofSize: 14, weight: r == 0 ? .semibold : .regular)
+                let font = UIFont.systemFont(ofSize: 15, weight: r == 0 ? .semibold : .regular)
                 let w = (plain as NSString).size(withAttributes: [.font: font]).width
                 widest = max(widest, ceil(w) + 2)
             }
@@ -680,7 +680,7 @@ private struct TableBox: View {
                         ForEach(0..<width, id: \.self) { c in
                             let cell = c < row.count ? row[c] : ""
                             Text(Self.cellText(cell))
-                                .font(.system(size: 14, weight: r == 0 ? .semibold : .regular))
+                                .font(.system(size: 15, weight: r == 0 ? .semibold : .regular))
                                 .foregroundStyle(Theme.text)
                                 .fixedSize(horizontal: false, vertical: true)
                                 .frame(width: columns[c], alignment: .leading)
@@ -694,6 +694,7 @@ private struct TableBox: View {
                     }
                 }
             }
+            .background(onBubble ? Theme.background : Color.clear)
             .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Theme.border, lineWidth: 1))
             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
@@ -809,5 +810,19 @@ private struct ControlCard: View {
         .padding(12)
         .background(Theme.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Theme.border, lineWidth: 0.5))
+    }
+}
+
+private extension View {
+    /// The jump-to-latest button: glass like the composer on iOS 26.
+    @ViewBuilder
+    func floatingCircle() -> some View {
+        if #available(iOS 26, *) {
+            glassEffect(.regular.interactive(), in: Circle())
+        } else {
+            background(Theme.surface, in: Circle())
+                .overlay(Circle().strokeBorder(Theme.borderAccent, lineWidth: 1))
+                .shadow(color: .black.opacity(0.12), radius: 6, y: 2)
+        }
     }
 }

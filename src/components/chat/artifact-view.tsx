@@ -27,9 +27,20 @@ import {
   Headphones,
   Play,
   Code as CodeIcon,
+  Presentation,
+  Sheet,
   X,
 } from "lucide-react";
+import { toast } from "sonner";
 import { invoke } from "@/lib/host/core";
+import { copyImageToClipboard } from "@/lib/copy-image";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import {
   Dialog,
   DialogClose,
@@ -54,6 +65,17 @@ import {
   remarkTrimAutolinkCjk,
 } from "@/lib/markdown";
 import { useTranslation } from "@/lib/i18n";
+import {
+  isSpreadsheetName,
+  SpreadsheetPreview,
+  SpreadsheetThumbnail,
+} from "@/components/workspace/spreadsheet-preview";
+import {
+  DocxPreview,
+  isPresentationName,
+  isWordName,
+  PptxPreview,
+} from "@/components/workspace/document-preview";
 
 interface Props {
   artifact: ArtifactDetails;
@@ -96,6 +118,18 @@ const RICH_PREVIEW_KINDS = new Set([
   "pdf",
 ]);
 
+type OfficeKind = "spreadsheet" | "document" | "presentation";
+
+/** Senders tag Office files as "other"; detect them by extension so existing
+ *  messages pick up the previews too. */
+function officeKind(a: ArtifactDetails): OfficeKind | null {
+  if (a.artifactKind !== "other") return null;
+  if (isSpreadsheetName(a.name)) return "spreadsheet";
+  if (isWordName(a.name)) return "document";
+  if (isPresentationName(a.name)) return "presentation";
+  return null;
+}
+
 /** Kinds whose source is plain text, so the preview can offer a copy button
  *  that puts the raw file contents on the clipboard. */
 const COPYABLE_KINDS = new Set(["markdown", "text", "html"]);
@@ -110,7 +144,8 @@ export function ArtifactView({ artifact }: Props) {
   const [open, setOpen] = useState(false);
   const url = artifactUrl(artifact.path);
   const kindLabel = labelFor(artifact, t);
-  const compact = !RICH_PREVIEW_KINDS.has(artifact.artifactKind);
+  const compact =
+    !RICH_PREVIEW_KINDS.has(artifact.artifactKind) && !officeKind(artifact);
 
   const meta = (
     <>
@@ -124,55 +159,63 @@ export function ArtifactView({ artifact }: Props) {
     </>
   );
 
+  const card = (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={() => setOpen(true)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          setOpen(true);
+        }
+      }}
+      className={cn(
+        "block max-w-full cursor-pointer text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        compact ? "w-72" : "w-80",
+      )}
+      aria-label={t("artifact.open", { name: artifact.name })}
+    >
+      <div
+        className={cn(
+          "relative isolate overflow-hidden rounded-xl bg-card",
+          "shadow-[0_2px_8px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)]",
+          compact ? "flex items-center gap-3 px-3.5 py-3" : "flex flex-col",
+        )}
+      >
+        {compact ? (
+          <>
+            <CompactThumb artifact={artifact} />
+            <div className="min-w-0 flex-1">{meta}</div>
+          </>
+        ) : (
+          <>
+            <div className="relative aspect-square w-full overflow-hidden bg-card">
+              <Thumbnail artifact={artifact} url={url} />
+            </div>
+            <div className="border-t border-border/60 bg-muted/40 px-3.5 py-2.5">
+              {meta}
+            </div>
+          </>
+        )}
+        {/* Paint the outline above media layers. A regular border can be
+            partially covered by an accelerated image during rounded
+            clipping, leaving intermittent 1px gaps at fractional DPRs. */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 z-10 rounded-[inherit] border border-border/80"
+        />
+      </div>
+    </div>
+  );
+
   return (
     <>
-      <div
-        role="button"
-        tabIndex={0}
-        onClick={() => setOpen(true)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            setOpen(true);
-          }
-        }}
-        className={cn(
-          "block max-w-full cursor-pointer text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-          compact ? "w-72" : "w-80",
-        )}
-        aria-label={t("artifact.open", { name: artifact.name })}
-      >
-        <div
-          className={cn(
-            "relative isolate overflow-hidden rounded-xl bg-card",
-            "shadow-[0_2px_8px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)]",
-            compact ? "flex items-center gap-3 px-3.5 py-3" : "flex flex-col",
-          )}
-        >
-          {compact ? (
-            <>
-              <CompactThumb artifact={artifact} />
-              <div className="min-w-0 flex-1">{meta}</div>
-            </>
-          ) : (
-            <>
-              <div className="relative aspect-square w-full overflow-hidden bg-card">
-                <Thumbnail artifact={artifact} url={url} />
-              </div>
-              <div className="border-t border-border/60 bg-muted/40 px-3.5 py-2.5">
-                {meta}
-              </div>
-            </>
-          )}
-          {/* Paint the outline above media layers. A regular border can be
-              partially covered by an accelerated image during rounded
-              clipping, leaving intermittent 1px gaps at fractional DPRs. */}
-          <div
-            aria-hidden
-            className="pointer-events-none absolute inset-0 z-10 rounded-[inherit] border border-border/80"
-          />
-        </div>
-      </div>
+      {artifact.artifactKind === "image" ? (
+        <ImageContextMenu artifact={artifact}>{card}</ImageContextMenu>
+      ) : (
+        card
+      )}
 
       <ArtifactPreviewDialog
         artifact={artifact}
@@ -193,6 +236,30 @@ function Thumbnail({
   url: string;
 }) {
   const { t } = useTranslation("chat");
+  const office = officeKind(artifact);
+  if (office === "spreadsheet") {
+    return (
+      <SpreadsheetThumbnail
+        url={url}
+        fallback={<IconThumb Icon={Sheet} label={extLabel(artifact, t)} />}
+      />
+    );
+  }
+  if (office) {
+    // Quick Look renders the first page / slide faithfully; parsing the whole
+    // file for every card in a long chat would not be worth it.
+    return (
+      <NativeThumbnail
+        artifact={artifact}
+        fallback={
+          <IconThumb
+            Icon={office === "presentation" ? Presentation : FileText}
+            label={extLabel(artifact, t)}
+          />
+        }
+      />
+    );
+  }
   switch (artifact.artifactKind) {
     case "image":
       return (
@@ -683,15 +750,25 @@ function FullPreview({
   url: string;
 }) {
   const { t } = useTranslation("chat");
+  switch (officeKind(artifact)) {
+    case "spreadsheet":
+      return <SpreadsheetPreview url={url} />;
+    case "document":
+      return <DocxPreview url={url} title={artifact.name} />;
+    case "presentation":
+      return <PptxPreview url={url} />;
+  }
   switch (artifact.artifactKind) {
     case "image":
       return (
         <div className="flex h-full w-full items-center justify-center p-4">
-          <img
-            src={url}
-            alt={artifact.caption ?? artifact.name}
-            className="max-h-full max-w-full object-contain"
-          />
+          <ImageContextMenu artifact={artifact}>
+            <img
+              src={url}
+              alt={artifact.caption ?? artifact.name}
+              className="max-h-full max-w-full object-contain"
+            />
+          </ImageContextMenu>
         </div>
       );
     case "video":
@@ -755,6 +832,52 @@ function FullPreview({
         </div>
       );
   }
+}
+
+// ---- Image context menu -----------------------------------------------
+
+/** Right-click menu for image artifacts — the webview has no native one. */
+function ImageContextMenu({
+  artifact,
+  children,
+}: {
+  artifact: ArtifactDetails;
+  children: React.ReactElement;
+}) {
+  const { t } = useTranslation("chat");
+  const copy = () => {
+    copyImageToClipboard(artifactUrl(artifact.path))
+      .then(() => toast.success(t("artifact.imageCopied")))
+      .catch((e) =>
+        toast.error(t("artifact.copyImageFailed", { error: String(e) })),
+      );
+  };
+  const run = (cmd: string) => () =>
+    invoke(cmd, { path: artifact.path }).catch(console.error);
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
+      <ContextMenuContent className="min-w-44">
+        <ContextMenuItem onSelect={copy}>
+          <Copy />
+          {t("artifact.copyImage")}
+        </ContextMenuItem>
+        <ContextMenuItem onSelect={run("save_artifact_copy")}>
+          <Download />
+          {t("artifact.saveImage")}
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem onSelect={run("open_path")}>
+          <ExternalLink />
+          {t("artifact.openExternal")}
+        </ContextMenuItem>
+        <ContextMenuItem onSelect={run("reveal_in_finder")}>
+          <FolderOpen />
+          {t("artifact.revealInFinder")}
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
+  );
 }
 
 // ---- HTML preview (sandboxed iframe + parent bridge) -------------------
@@ -875,6 +998,14 @@ function useFileText(path: string) {
 type Translator = (key: string, vars?: Record<string, string | number>) => string;
 
 function labelFor(a: ArtifactDetails, t: Translator): string {
+  switch (officeKind(a)) {
+    case "spreadsheet":
+      return t("artifact.kind.spreadsheet");
+    case "document":
+      return t("artifact.kind.document");
+    case "presentation":
+      return t("artifact.kind.presentation");
+  }
   switch (a.artifactKind) {
     case "image":
       return t("artifact.kind.image");

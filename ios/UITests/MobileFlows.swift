@@ -123,6 +123,36 @@ final class MobileFlows: XCTestCase {
         XCTAssertTrue(thread.exists)
     }
 
+    /// Relaunch with a Mac that answers `conversations.update` by archiving the sample chat.
+    private func launchWithArchivingMac() throws -> XCUIElement {
+        app.terminate()
+        let fixture = FileManager.default.temporaryDirectory.appendingPathComponent("sidebar-archive.json")
+        let sidebar = #"{"host":{"macName":"Test Mac"},"sidebar":{"defaultWorkspace":"/work"},"conversations":[{"id":"sample","title":"Sample thread","workspaceDir":"/work"}],"replies":{"conversations.update":{"result":{"id":"sample","title":"Sample thread","workspaceDir":"/work","archivedAt":1}}}}"#
+        try sidebar.write(to: fixture, atomically: true, encoding: .utf8)
+        app.launchArguments = ["-demoList", fixture.path]
+        app.launch()
+        let thread = app.buttons.containing(NSPredicate(format: "label CONTAINS %@", "Sample thread")).firstMatch
+        XCTAssertTrue(thread.waitForExistence(timeout: 5))
+        return thread
+    }
+
+    func testSwipeToArchiveFromList() throws {
+        let thread = try launchWithArchivingMac()
+        thread.swipeLeft()
+        app.buttons["Archive"].tap()
+        XCTAssertTrue(thread.waitForNonExistence(timeout: 5))
+    }
+
+    func testArchiveFromChatReturnsToList() throws {
+        let thread = try launchWithArchivingMac()
+        thread.tap()
+        XCTAssertTrue(app.textViews.firstMatch.waitForExistence(timeout: 5))
+        app.navigationBars.buttons.element(boundBy: app.navigationBars.buttons.count - 1).tap()
+        app.buttons["Archive"].tap()
+        XCTAssertTrue(app.buttons["New chat"].waitForExistence(timeout: 5))
+        XCTAssertFalse(thread.exists)
+    }
+
     func testSettingsPairValidationAndUsage() {
         app.buttons["Settings"].tap()
         app.buttons["Pair Another Mac…"].tap()
@@ -153,6 +183,24 @@ final class MobileFlows: XCTestCase {
         retry.tap()
         XCTAssertTrue(app.staticTexts["Recovered history"].waitForExistence(timeout: 5))
         XCTAssertFalse(retry.exists)
+    }
+
+    func testLongPressCopiesWholeReply() throws {
+        app.terminate()
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: file) }
+        let snapshot = #"{"conversation":{"id":"demo","title":"Copy test"},"messages":[{"role":"user","content":"Hi"},{"role":"assistant","content":[{"type":"text","text":"First paragraph\n\nSecond paragraph"}]}]}"#
+        try snapshot.write(to: file, atomically: true, encoding: .utf8)
+        app.launchArguments += ["-demoSnapshot", file.path]
+        app.launch()
+        let reply = app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH %@", "First paragraph")).firstMatch
+        XCTAssertTrue(reply.waitForExistence(timeout: 5))
+        reply.press(forDuration: 1.0)
+        let copy = app.buttons["Copy Reply"]
+        XCTAssertTrue(copy.waitForExistence(timeout: 3))
+        copy.tap()
+        // Reading UIPasteboard here would raise the paste prompt; the menu closing is enough.
+        XCTAssertTrue(copy.waitForNonExistence(timeout: 3))
     }
 
     func testDocumentPreviewFromTranscript() throws {

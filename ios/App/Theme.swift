@@ -31,11 +31,18 @@ enum Theme {
     static let diffDel = dynamic(light: 0xFFEBE9, dark: 0x490202).opacity(0.4)
     static let diffDelText = dynamic(light: 0x82071E, dark: 0xFFDCD7)
 
-    // Type ramp: 15 for content, 14 for lists, 12 for meta.
-    static let content = Font.system(size: 15)
-    static let row = Font.system(size: 15)
-    static let label = Font.system(size: 14)
-    static let meta = Font.system(size: 12)
+    // Type ramp, on iOS text styles so it follows the system text size:
+    // 17 for reading and list titles, 15 for secondary labels, 13 for meta.
+    static let content = Font.body
+    static let row = Font.body
+    static let label = Font.subheadline
+    static let meta = Font.footnote
+    static let code = Font.system(.footnote, design: .monospaced)
+    /// Extra leading for body text; CJK needs more air than the default.
+    static let contentLeading: CGFloat = 5
+
+    /// A soft spring for presses and state changes; none with Reduce Motion.
+    static let spring = Animation.spring(response: 0.32, dampingFraction: 0.72)
 
     private static func dynamic(light: UInt32, dark: UInt32) -> Color {
         Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(hex: dark) : UIColor(hex: light) })
@@ -155,5 +162,17 @@ extension String {
     var folderName: String {
         let last = (self as NSString).lastPathComponent
         return last.isEmpty ? "Chat" : last
+    }
+}
+
+/// Shrinks a control a touch while pressed and springs it back on release.
+struct PressScaleStyle: ButtonStyle {
+    var scale: CGFloat = 0.9
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed && !reduceMotion ? scale : 1)
+            .animation(reduceMotion ? nil : Theme.spring, value: configuration.isPressed)
     }
 }

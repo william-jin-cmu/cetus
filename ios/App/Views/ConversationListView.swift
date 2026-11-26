@@ -23,28 +23,30 @@ struct ConversationListView: View {
     var body: some View {
         @Bindable var store = store
         NavigationStack(path: $path) {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    topActions
-                    Divider().overlay(Theme.border).padding(.vertical, 8)
-                    if store.showArchived {
-                        archivedList
-                    } else {
-                        sectionHeader
-                        ForEach(store.groups) { group in
-                            groupView(group)
-                        }
-                        if store.groups.isEmpty && store.hasLoadedList {
-                            Text("No chats yet")
-                                .foregroundStyle(Theme.muted)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 40)
-                        }
+            // A List rather than a ScrollView for the native swipe actions.
+            List {
+                topActions.plainRow()
+                Rectangle().fill(Theme.border).frame(height: 0.5).padding(.vertical, 8).plainRow()
+                if store.showArchived {
+                    archivedList
+                } else {
+                    sectionHeader.plainRow()
+                    ForEach(store.groups) { group in
+                        groupView(group)
+                    }
+                    if store.groups.isEmpty && store.hasLoadedList {
+                        Text("No chats yet")
+                            .foregroundStyle(Theme.muted)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 40)
+                            .plainRow()
                     }
                 }
-                .padding(.horizontal, 12)
-                .padding(.bottom, 24)
+                Color.clear.frame(height: 24).plainRow()
             }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .environment(\.defaultMinListRowHeight, 0)
             .scrollIndicators(.hidden)
             .refreshable { await store.refreshList() }
             .background(Theme.background)
@@ -134,6 +136,7 @@ struct ConversationListView: View {
                     .foregroundStyle(Theme.muted)
                     .frame(width: 32, height: 32)
             }
+            .buttonStyle(.borderless)
             .disabled(store.state != .connected)
         }
         .padding(.leading, 8)
@@ -154,6 +157,7 @@ struct ConversationListView: View {
             path.append(.newChat(folder: group.dir))
         }
         .padding(.top, 10)
+        .plainRow()
         if !isCollapsed {
             let items = showAll ? group.items : Array(group.items.prefix(Self.previewCount))
             ForEach(items) { c in
@@ -170,7 +174,10 @@ struct ConversationListView: View {
                         .foregroundStyle(Theme.muted)
                         .padding(.leading, 40)
                         .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
+                        .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .plainRow()
             }
             if group.items.isEmpty && !group.isPinned {
                 Text("No chats")
@@ -178,38 +185,49 @@ struct ConversationListView: View {
                     .foregroundStyle(Theme.faint)
                     .padding(.leading, 40)
                     .frame(minHeight: 36)
+                    .plainRow()
             }
         }
     }
 
+    @ViewBuilder
     private var archivedList: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("Archived")
-                .font(.subheadline)
+        Text("Archived")
+            .font(.subheadline)
+            .foregroundStyle(Theme.muted)
+            .padding(.leading, 8)
+            .padding(.vertical, 8)
+            .plainRow()
+        ForEach(store.conversations.filter(\.archived)) { c in
+            chatRow(c, subtitle: store.folderName(c.workspaceDir))
+        }
+        if !store.conversations.contains(where: \.archived) && store.hasLoadedList {
+            Text("No archived chats")
                 .foregroundStyle(Theme.muted)
-                .padding(.leading, 8)
-                .padding(.vertical, 8)
-            ForEach(store.conversations.filter(\.archived)) { c in
-                chatRow(c, subtitle: store.folderName(c.workspaceDir))
-            }
-            if !store.conversations.contains(where: \.archived) && store.hasLoadedList {
-                Text("No archived chats")
-                    .foregroundStyle(Theme.muted)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 40)
-            }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 40)
+                .plainRow()
         }
     }
 
     private func chatRow(_ c: Conversation, subtitle: String? = nil) -> some View {
-        NavigationLink(value: Route.chat(c.id)) {
+        // A Button, not a NavigationLink: a List would add a disclosure chevron.
+        Button {
+            path.append(.chat(c.id))
+        } label: {
             ChatRow(conversation: c, running: store.running.contains(c.id), subtitle: subtitle)
         }
         .buttonStyle(RowButtonStyle())
-        .contextMenu {
-            Button(c.archived ? "Unarchive" : "Archive", systemImage: c.archived ? "tray.and.arrow.up" : "archivebox") {
-                Task { try? await store.update(c.id, ["archived": .bool(!c.archived)]) }
-            }
+        .contextMenu { archiveButton(c) }
+        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+            archiveButton(c).tint(c.archived ? Theme.success : .indigo)
+        }
+        .plainRow()
+    }
+
+    private func archiveButton(_ c: Conversation) -> some View {
+        Button(c.archived ? "Unarchive" : "Archive", systemImage: c.archived ? "tray.and.arrow.up" : "archivebox") {
+            Task { try? await store.update(c.id, ["archived": .bool(!c.archived)]) }
         }
     }
 
@@ -251,17 +269,27 @@ struct ConversationListView: View {
 
 // MARK: - Pieces
 
+private extension View {
+    /// A List row that looks like the old stacked layout: no inset, separator
+    /// or highlight of its own.
+    func plainRow() -> some View {
+        listRowInsets(EdgeInsets(top: 0, leading: 12, bottom: 0, trailing: 12))
+            .listRowSeparator(.hidden)
+            .listRowBackground(Theme.background)
+    }
+}
+
 /// Mac name with its connection state, at the top of the list.
 private struct HostHeader: View {
     let onPair: () -> Void
     @Environment(RemoteStore.self) private var store
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 10) {
             Image("Logo")
                 .resizable()
-                .frame(width: 26, height: 26)
-                .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                .frame(width: 32, height: 32)
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             VStack(alignment: .leading, spacing: 1) {
                 Text(store.selectedHost?.macName ?? "Mac")
                     .font(.headline)
@@ -271,7 +299,7 @@ private struct HostHeader: View {
                     Circle().fill(color).frame(width: 6, height: 6)
                     Text(label)
                         .lineLimit(1)
-                        .font(.caption)
+                        .font(Theme.meta)
                         .foregroundStyle(Theme.muted)
                 }
             }
@@ -314,15 +342,15 @@ private struct ActionRow: View {
         Button(action: action) {
             HStack(spacing: 12) {
                 Image(systemName: systemImage)
-                    .font(.system(size: 16, weight: .light))
-                    .frame(width: 22)
+                    .font(.system(size: 17, weight: .regular))
+                    .frame(width: 24)
                 Text(title)
                     .font(Theme.row)
                 Spacer()
             }
             .foregroundStyle(Theme.text)
             .padding(.horizontal, 8)
-            .frame(height: 44)
+            .frame(minHeight: 48)
             .contentShape(Rectangle())
         }
         .buttonStyle(RowButtonStyle())
@@ -348,7 +376,7 @@ private struct GroupHeader: View {
                         FolderAvatar(dir: group.dir, name: group.name, isDefault: group.isDefault)
                     }
                     Text(group.name)
-                        .font(Theme.row)
+                        .font(Theme.label.weight(.medium))
                         .foregroundStyle(Theme.muted)
                         .lineLimit(1)
                     Image(systemName: "chevron.right")
@@ -367,10 +395,11 @@ private struct GroupHeader: View {
                         .foregroundStyle(Theme.muted)
                         .frame(width: 36, height: 36)
                 }
+                .buttonStyle(.borderless)
             }
         }
         .padding(.leading, 8)
-        .frame(height: 40)
+        .frame(minHeight: 40)
     }
 }
 
@@ -385,8 +414,8 @@ struct ChatRow: View {
                 .padding(.leading, 11)
             VStack(alignment: .leading, spacing: 2) {
                 Text(conversation.displayTitle)
-                    .font(Theme.row)
-                    .foregroundStyle(Theme.text.opacity(0.82))
+                    .font(Theme.row.weight(conversation.unread ? .semibold : .regular))
+                    .foregroundStyle(conversation.unread ? Theme.text : Theme.text.opacity(0.82))
                     .lineLimit(1)
                 if let subtitle {
                     Text(subtitle)
@@ -400,19 +429,24 @@ struct ChatRow: View {
                 .foregroundStyle(Theme.faint)
         }
         .padding(.trailing, 10)
-        .frame(minHeight: 44)
+        .frame(minHeight: 50)
         .contentShape(Rectangle())
     }
 }
 
-/// Rows highlight in a raised rounded rect while pressed, like the Mac list.
+/// Rows highlight in a rounded rect while pressed, like the Mac list, and
+/// settle back with a little give.
 struct RowButtonStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(configuration.isPressed ? Theme.raised : .clear)
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(configuration.isPressed ? Theme.surface : .clear)
             )
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.98 : 1)
+            .animation(reduceMotion ? nil : Theme.spring, value: configuration.isPressed)
     }
 }
 

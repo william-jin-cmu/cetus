@@ -26,6 +26,23 @@ function isProcess(b: RenderedBlock): b is Extract<ProcessBlock, { kind: "thinki
     !(b.result && artifactsFromDetails(b.result.details).length > 0));
 }
 
+/** A file delivered again later in the same turn (a rebuilt zip, or a
+ *  generated image the runtime already showed that the agent then also
+ *  sends with `cetus artifact`) keeps only its last card. */
+function dropResentArtifacts<T extends { b: RenderedBlock }>(flat: T[]): T[] {
+  const later = new Set<string>();
+  const keep = flat.map(() => true);
+  for (let i = flat.length - 1; i >= 0; i--) {
+    const b = flat[i].b;
+    if (b.kind !== "tool_use" || !b.result) continue;
+    const paths = artifactsFromDetails(b.result.details).map((a) => a.path);
+    if (paths.length === 0) continue;
+    if (paths.every((path) => later.has(path))) keep[i] = false;
+    for (const path of paths) later.add(path);
+  }
+  return flat.filter((_, i) => keep[i]);
+}
+
 /** One display policy for pi, Claude Code, Codex and every ACP backend.
  * Explicit final-answer text is always retained. Without phase metadata,
  * keep the last text run and everything after it. Content chunks are not
@@ -34,10 +51,10 @@ function isProcess(b: RenderedBlock): b is Extract<ProcessBlock, { kind: "thinki
  * starts collapsed. Artifacts are barriers: folding must never reorder
  * activity across them. Keys follow source blocks, not live state. */
 export function buildAssistantSegments(messages: RenderedMessage[], live: boolean): AssistantSegment[] {
-  const flat = messages.flatMap((m) => m.blocks.flatMap((b, index) => {
+  const flat = dropResentArtifacts(messages.flatMap((m) => m.blocks.flatMap((b, index) => {
     if ((b.kind === "thinking" || b.kind === "text") && !b.text.trim() && !b.streaming) return [];
     return [{ b, key: `${m.key}:${index}`, at: m.createdAt }];
-  }));
+  })));
   let boundary = -1;
   let hasProcess = false;
   let lastProcess = -1;
